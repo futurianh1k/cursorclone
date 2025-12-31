@@ -1,0 +1,14 @@
+services:
+  vllm:
+    image: vllm/vllm-openai:latest
+    # NOTE: GPU host needed. Adjust for your environment.
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    ports:
+      - "8001:8000"
+    command:
+      - "--model"
+      - "Qwen/Qwen2.5-Coder-7B-Instruct"
+      - "--dtype"
+      - "half"
