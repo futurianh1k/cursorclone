@@ -12,8 +12,40 @@ from ..models import (
     AIRewriteResponse,
     ErrorResponse,
 )
+from ..context_builder import (
+    DefaultContextBuilder,
+    ContextBuildRequest,
+    ContextSource,
+    ContextSourceType,
+    ActionType,
+    SecurityError,
+)
+from ..llm import (
+    get_llm_client,
+    LLMError,
+    LLMTimeoutError,
+)
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
+
+# Context Builder 인스턴스 (전역 또는 의존성 주입)
+# TODO: 실제로는 의존성 주입 또는 설정에서 가져오기
+_context_builder_cache = {}
+
+
+def _get_context_builder(workspace_id: str) -> DefaultContextBuilder:
+    """
+    워크스페이스별 Context Builder 가져오기
+    
+    TODO: 실제 워크스페이스 루트 경로 가져오기
+    """
+    if workspace_id not in _context_builder_cache:
+        # TODO: 실제 워크스페이스 루트 경로
+        workspace_root = f"/workspaces/{workspace_id}"
+        _context_builder_cache[workspace_id] = DefaultContextBuilder(
+            workspace_root=workspace_root,
+        )
+    return _context_builder_cache[workspace_id]
 
 
 def _validate_workspace_access(ws_id: str) -> bool:
@@ -29,6 +61,22 @@ def _validate_path(path: str) -> bool:
     if path.startswith("/"):
         return False
     return True
+
+
+async def _read_file_content(workspace_id: str, file_path: str) -> str:
+    """
+    파일 내용 읽기
+    
+    TODO: 실제 파일 읽기 구현 (files 라우터와 연동)
+    """
+    # TODO: 파일시스템에서 실제 파일 읽기
+    # workspace_root = f"/workspaces/{workspace_id}"
+    # full_path = os.path.join(workspace_root, file_path)
+    # with open(full_path, "r", encoding="utf-8") as f:
+    #     return f.read()
+    
+    # 더미 데이터
+    return 'print("hello on-prem poc")\n'
 
 
 @router.post(
@@ -72,22 +120,81 @@ async def explain_code(request: AIExplainRequest):
             detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
         )
     
-    # TODO: Context Builder 호출
-    # context = await context_builder.build(
-    #     action="explain",
-    #     workspace_id=request.workspace_id,
-    #     file_path=request.file_path,
-    #     selection=request.selection,
-    # )
-    
-    # TODO: vLLM 호출
-    # response = await llm_client.chat(context.messages)
-    
-    # 더미 응답 반환
-    return AIExplainResponse(
-        explanation="[STUB] 이 코드는 ... (Context Builder + vLLM 연동 필요)",
-        tokensUsed=0,
-    )
+    try:
+        # 파일 내용 읽기
+        file_content = await _read_file_content(request.workspace_id, request.file_path)
+        
+        # Context Builder 준비
+        context_builder = _get_context_builder(request.workspace_id)
+        
+        # 컨텍스트 소스 구성
+        sources = [
+            ContextSource(
+                type=ContextSourceType.FILE if not request.selection else ContextSourceType.SELECTION,
+                path=request.file_path,
+                content=file_content,
+                range=request.selection,
+            )
+        ]
+        
+        # Context Builder 호출
+        context_request = ContextBuildRequest(
+            workspace_id=request.workspace_id,
+            action=ActionType.EXPLAIN,
+            instruction=f"다음 코드를 설명해주세요: {request.file_path}",
+            sources=sources,
+        )
+        
+        context_response = await context_builder.build(context_request)
+        
+        # vLLM 호출
+        try:
+            llm_client = get_llm_client()
+            
+            # 메시지 형식 변환
+            messages = [
+                {"role": msg.role, "content": msg.content}
+                for msg in context_response.messages
+            ]
+            
+            llm_response = await llm_client.chat(
+                messages=messages,
+                max_tokens=request.max_tokens if hasattr(request, "max_tokens") else None,
+            )
+            
+            # 응답 추출
+            explanation = llm_response.get("choices", [{}])[0].get("message", {}).get("content", "")
+            tokens_used = llm_response.get("usage", {}).get("total_tokens", 0)
+            
+            if not explanation:
+                explanation = "[LLM 응답이 비어있습니다]"
+            
+            return AIExplainResponse(
+                explanation=explanation,
+                tokensUsed=tokens_used,
+            )
+            
+        except LLMTimeoutError as e:
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail={"error": "LLM timeout", "code": "LLM_TIMEOUT", "detail": str(e)},
+            )
+        except LLMError as e:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={"error": "LLM service error", "code": "LLM_ERROR", "detail": str(e)},
+            )
+        
+    except SecurityError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "Security validation failed", "code": "SECURITY_ERROR", "detail": str(e)},
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "Internal server error", "code": "INTERNAL_ERROR"},
+        )
 
 
 @router.post(
@@ -137,26 +244,92 @@ async def rewrite_code(request: AIRewriteRequest):
             detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
         )
     
-    # TODO: Context Builder 호출
-    # context = await context_builder.build(
-    #     action="rewrite",
-    #     workspace_id=request.workspace_id,
-    #     instruction=request.instruction,
-    #     target=request.target,
-    # )
-    
-    # TODO: vLLM 호출 (rewrite 템플릿 사용)
-    # response = await llm_client.chat(context.messages)
-    
-    # 더미 diff 반환
-    stub_diff = f"""--- a/{target_file}
+    try:
+        # 파일 내용 읽기
+        file_content = await _read_file_content(request.workspace_id, target_file)
+        
+        # 선택 범위 추출
+        selection_range = None
+        if "selection" in request.target:
+            from ..context_builder import SelectionRange
+            sel = request.target["selection"]
+            selection_range = SelectionRange(
+                start_line=sel.get("startLine", sel.get("start_line", 1)),
+                end_line=sel.get("endLine", sel.get("end_line", 1)),
+            )
+        
+        # Context Builder 준비
+        context_builder = _get_context_builder(request.workspace_id)
+        
+        # 컨텍스트 소스 구성
+        sources = [
+            ContextSource(
+                type=ContextSourceType.SELECTION if selection_range else ContextSourceType.FILE,
+                path=target_file,
+                content=file_content,
+                range=selection_range,
+            )
+        ]
+        
+        # Context Builder 호출
+        context_request = ContextBuildRequest(
+            workspace_id=request.workspace_id,
+            action=ActionType.REWRITE,
+            instruction=request.instruction,
+            sources=sources,
+        )
+        
+        context_response = await context_builder.build(context_request)
+        
+        # vLLM 호출 (rewrite 템플릿 사용)
+        try:
+            llm_client = get_llm_client()
+            
+            # 메시지 형식 변환
+            messages = [
+                {"role": msg.role, "content": msg.content}
+                for msg in context_response.messages
+            ]
+            
+            llm_response = await llm_client.chat(
+                messages=messages,
+                max_tokens=request.max_tokens if hasattr(request, "max_tokens") else None,
+            )
+            
+            # 응답 추출 (unified diff 형식)
+            diff = llm_response.get("choices", [{}])[0].get("message", {}).get("content", "")
+            tokens_used = llm_response.get("usage", {}).get("total_tokens", 0)
+            
+            if not diff:
+                # 빈 diff인 경우 기본 형식 반환
+                diff = f"""--- a/{target_file}
 +++ b/{target_file}
-@@ -1,1 +1,1 @@
--# TODO: original code
-+# TODO: rewritten code (Context Builder + vLLM 연동 필요)
+@@ -1,0 +1,0 @@
 """
-    
-    return AIRewriteResponse(
-        diff=stub_diff,
-        tokensUsed=0,
-    )
+            
+            return AIRewriteResponse(
+                diff=diff,
+                tokensUsed=tokens_used,
+            )
+            
+        except LLMTimeoutError as e:
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail={"error": "LLM timeout", "code": "LLM_TIMEOUT", "detail": str(e)},
+            )
+        except LLMError as e:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={"error": "LLM service error", "code": "LLM_ERROR", "detail": str(e)},
+            )
+        
+    except SecurityError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "Security validation failed", "code": "SECURITY_ERROR", "detail": str(e)},
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "Internal server error", "code": "INTERNAL_ERROR"},
+        )

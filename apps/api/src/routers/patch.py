@@ -75,10 +75,12 @@ async def validate_patch(request: PatchValidateRequest):
     4. 패치 크기 제한
     5. 워크스페이스 내 파일인지 확인
     
-    TODO: packages/diff-utils 연동 (Task C)
-    - 실제 unified diff 파서 사용
-    - 심볼릭 링크 검증
-    - 파일 존재 여부 확인
+    TODO: packages/diff-utils 연동 (Task C 완료)
+    - TypeScript diff-utils 구현 완료 (packages/diff-utils/src/index.ts)
+    - Python에서 Node.js subprocess로 호출하거나 Python 포팅 필요
+    - 실제 unified diff 파서 사용 (parseUnifiedDiff)
+    - 보안 검증 강화 (validatePatch)
+    - 패치 적용 (applyPatchToText)
     """
     if not _validate_workspace_access(request.workspace_id):
         raise HTTPException(
@@ -129,10 +131,12 @@ async def apply_patch(request: PatchApplyRequest):
     4. 패치 적용
     5. 감사 로그 기록 (해시만)
     
-    TODO: 실제 패치 적용 구현
+    TODO: 실제 패치 적용 구현 (Task C 완료 - diff-utils 구현됨)
     - packages/diff-utils의 applyPatchToText 사용
+      - TypeScript 구현 완료 (packages/diff-utils/src/index.ts)
+      - Python에서 Node.js subprocess로 호출하거나 Python 포팅 필요
     - 트랜잭션 처리 (실패 시 롤백)
-    - 충돌 감지 및 처리
+    - 충돌 감지 및 처리 (applyPatchToText가 ConflictInfo 반환)
     """
     if not _validate_workspace_access(request.workspace_id):
         raise HTTPException(

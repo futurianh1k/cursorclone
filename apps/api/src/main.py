@@ -123,8 +123,9 @@ async def startup_event():
     """앱 시작 시 실행"""
     # TODO: 초기화 작업
     # - DB 연결
-    # - vLLM 클라이언트 초기화
     # - 설정 로드
+    
+    # vLLM 클라이언트는 필요 시 자동 생성됨 (get_llm_client)
     pass
 
 
@@ -133,5 +134,7 @@ async def shutdown_event():
     """앱 종료 시 실행"""
     # TODO: 정리 작업
     # - DB 연결 종료
-    # - 리소스 정리
-    pass
+    
+    # LLM 클라이언트 종료
+    from .llm import close_llm_client
+    await close_llm_client()
