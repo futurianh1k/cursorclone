@@ -1,1 +1,99 @@
-node_modules
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js
+apps/web/.next/
+apps/web/out/
+apps/web/build/
+apps/web/.next
+apps/web/.vercel
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+apps/api/build/
+apps/api/dist/
+apps/api/*.egg-info/
+apps/api/.eggs/
+apps/api/.venv/
+apps/api/venv/
+apps/api/env/
+apps/api/.pytest_cache/
+apps/api/.coverage
+apps/api/htmlcov/
+apps/api/.mypy_cache/
+apps/api/.ruff_cache/
+*.egg-info/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Testing
+coverage/
+*.lcov
+.nyc_output/
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+.cache/
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Workspace specific (온프레미스 PoC)
+workspaces/
+*.backup
+*.bak
+
+# pnpm
+.pnpm-store/
+
+# TypeScript
+*.tsbuildinfo
+
+# Python virtual environments (various locations)
+venv/
+ENV/
+env/
+.venv/

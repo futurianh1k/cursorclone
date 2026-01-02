@@ -65,18 +65,25 @@ def _validate_path(path: str) -> bool:
 
 async def _read_file_content(workspace_id: str, file_path: str) -> str:
     """
-    파일 내용 읽기
-    
-    TODO: 실제 파일 읽기 구현 (files 라우터와 연동)
+    파일 내용 읽기 (files 라우터와 동일한 로직 사용)
     """
-    # TODO: 파일시스템에서 실제 파일 읽기
-    # workspace_root = f"/workspaces/{workspace_id}"
-    # full_path = os.path.join(workspace_root, file_path)
-    # with open(full_path, "r", encoding="utf-8") as f:
-    #     return f.read()
+    import os
+    from ..utils.filesystem import get_workspace_root, validate_path, read_file_content, workspace_exists
     
-    # 더미 데이터
-    return 'print("hello on-prem poc")\n'
+    dev_mode = os.getenv("DEV_MODE", "false").lower() == "true"
+    workspace_root = get_workspace_root(workspace_id, dev_mode=dev_mode)
+    
+    # 워크스페이스 존재 여부 확인
+    if not workspace_exists(workspace_root):
+        raise ValueError(f"Workspace not found: {workspace_id}")
+    
+    # 경로 검증 및 파일 읽기
+    try:
+        full_path = validate_path(file_path, workspace_root)
+        content, _ = read_file_content(full_path)
+        return content
+    except (ValueError, FileNotFoundError) as e:
+        raise ValueError(f"Failed to read file: {e}")
 
 
 @router.post(

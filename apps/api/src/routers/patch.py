@@ -4,6 +4,8 @@ Patch 라우터
 - POST /api/patch/apply
 """
 
+import os
+import hashlib
 from fastapi import APIRouter, HTTPException, status
 from ..models import (
     PatchValidateRequest,
@@ -12,6 +14,13 @@ from ..models import (
     PatchApplyResponse,
     ErrorResponse,
 )
+from ..utils.diff_utils import (
+    validate_patch,
+    parse_unified_diff,
+    apply_patch_to_file,
+    PatchValidationResult,
+)
+from ..utils.filesystem import get_workspace_root, workspace_exists
 
 router = APIRouter(prefix="/api/patch", tags=["patch"])
 
@@ -22,35 +31,7 @@ def _validate_workspace_access(ws_id: str) -> bool:
     return True
 
 
-def _validate_patch_basic(patch: str) -> tuple[bool, str | None, list[str]]:
-    """
-    패치 기본 검증
-    
-    TODO: packages/diff-utils 연동 (Task C)
-    현재는 기본적인 검증만 수행
-    """
-    files: list[str] = []
-    
-    # 빈 패치 검증
-    if not patch or len(patch.strip()) < 10:
-        return False, "empty_or_too_small", files
-    
-    # 경로 탈출 검증
-    if ".." in patch:
-        return False, "path_traversal_suspected", files
-    
-    # diff 형식 기본 검증
-    if "---" not in patch or "+++" not in patch:
-        return False, "invalid_diff_format", files
-    
-    # 파일 목록 추출 (간단한 파싱)
-    for line in patch.split("\n"):
-        if line.startswith("+++ b/"):
-            file_path = line[6:].strip()
-            if file_path:
-                files.append(file_path)
-    
-    return True, None, files
+# _validate_patch_basic는 더 이상 사용하지 않음 (diff_utils.validate_patch 사용)
 
 
 @router.post(
@@ -74,32 +55,31 @@ async def validate_patch(request: PatchValidateRequest):
     3. 파일 확장자 allowlist
     4. 패치 크기 제한
     5. 워크스페이스 내 파일인지 확인
-    
-    TODO: packages/diff-utils 연동 (Task C 완료)
-    - TypeScript diff-utils 구현 완료 (packages/diff-utils/src/index.ts)
-    - Python에서 Node.js subprocess로 호출하거나 Python 포팅 필요
-    - 실제 unified diff 파서 사용 (parseUnifiedDiff)
-    - 보안 검증 강화 (validatePatch)
-    - 패치 적용 (applyPatchToText)
     """
+    dev_mode = os.getenv("DEV_MODE", "false").lower() == "true"
+    
     if not _validate_workspace_access(request.workspace_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
         )
     
-    # 기본 검증
-    valid, reason, files = _validate_patch_basic(request.patch)
+    workspace_root = get_workspace_root(request.workspace_id, dev_mode=dev_mode)
     
-    # TODO: 심볼릭 링크 검증
-    # TODO: 파일 확장자 allowlist 검증
-    # TODO: 패치 크기 제한 검증
-    # TODO: 워크스페이스 내 파일인지 확인
+    # 워크스페이스 존재 여부 확인
+    if not workspace_exists(workspace_root):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "Workspace not found", "code": "WS_NOT_FOUND"},
+        )
+    
+    # diff-utils로 검증
+    validation_result = validate_patch(request.patch, workspace_root)
     
     return PatchValidateResponse(
-        valid=valid,
-        reason=reason,
-        files=files if valid else None,
+        valid=validation_result.valid,
+        reason=validation_result.reason,
+        files=validation_result.files if validation_result.valid else None,
     )
 
 
@@ -127,33 +107,37 @@ async def apply_patch(request: PatchApplyRequest):
     흐름:
     1. 패치 검증 (validate와 동일)
     2. dry_run인 경우 여기서 종료
-    3. 파일 백업 생성 (옵션)
+    3. 파일 백업 생성 (자동)
     4. 패치 적용
     5. 감사 로그 기록 (해시만)
-    
-    TODO: 실제 패치 적용 구현 (Task C 완료 - diff-utils 구현됨)
-    - packages/diff-utils의 applyPatchToText 사용
-      - TypeScript 구현 완료 (packages/diff-utils/src/index.ts)
-      - Python에서 Node.js subprocess로 호출하거나 Python 포팅 필요
-    - 트랜잭션 처리 (실패 시 롤백)
-    - 충돌 감지 및 처리 (applyPatchToText가 ConflictInfo 반환)
     """
+    dev_mode = os.getenv("DEV_MODE", "false").lower() == "true"
+    
     if not _validate_workspace_access(request.workspace_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
         )
     
-    # 먼저 검증
-    valid, reason, files = _validate_patch_basic(request.patch)
+    workspace_root = get_workspace_root(request.workspace_id, dev_mode=dev_mode)
     
-    if not valid:
+    # 워크스페이스 존재 여부 확인
+    if not workspace_exists(workspace_root):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "Workspace not found", "code": "WS_NOT_FOUND"},
+        )
+    
+    # 먼저 검증
+    validation_result = validate_patch(request.patch, workspace_root)
+    
+    if not validation_result.valid:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "error": "Invalid patch",
-                "code": f"PATCH_{reason.upper()}",
-                "detail": reason,
+                "code": f"PATCH_{validation_result.reason.upper() if validation_result.reason else 'INVALID'}",
+                "detail": validation_result.reason,
             },
         )
     
@@ -161,30 +145,68 @@ async def apply_patch(request: PatchApplyRequest):
     if request.dry_run:
         return PatchApplyResponse(
             success=True,
-            appliedFiles=files,
+            appliedFiles=validation_result.files or [],
             message="Dry run - patch is valid but not applied",
         )
     
-    # TODO: 실제 패치 적용
-    # try:
-    #     applied = await diff_utils.apply_patch(
-    #         workspace_path=f"/workspaces/{request.workspace_id}",
-    #         patch=request.patch,
-    #     )
-    # except ConflictError as e:
-    #     raise HTTPException(status_code=409, detail=...)
+    # 패치 파싱
+    parsed_files = parse_unified_diff(request.patch)
     
-    # TODO: 감사 로그 기록 (해시만)
+    if not parsed_files:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "No files in patch", "code": "PATCH_NO_FILES"},
+        )
+    
+    # 각 파일에 패치 적용
+    applied_files: List[str] = []
+    conflicts: List[str] = []
+    
+    for file_info in parsed_files:
+        try:
+            result = apply_patch_to_file(
+                Path(file_info.new_path),
+                file_info,
+                workspace_root,
+            )
+            
+            if result.success:
+                applied_files.append(file_info.new_path)
+            else:
+                if result.conflicts:
+                    for conflict in result.conflicts:
+                        conflicts.append(f"{file_info.new_path}: {conflict.reason}")
+                else:
+                    conflicts.append(f"{file_info.new_path}: unknown error")
+                    
+        except Exception as e:
+            conflicts.append(f"{file_info.new_path}: {str(e)}")
+    
+    # 충돌이 있으면 409 반환
+    if conflicts:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "Patch conflicts detected",
+                "code": "PATCH_CONFLICT",
+                "conflicts": conflicts,
+                "appliedFiles": applied_files,
+            },
+        )
+    
+    # 감사 로그 기록 (해시만)
+    patch_hash = hashlib.sha256(request.patch.encode()).hexdigest()
+    # TODO: 실제 감사 로그 저장
     # await audit_log.record(
     #     user_id=current_user.id,
     #     workspace_id=request.workspace_id,
     #     action="patch_apply",
-    #     patch_hash=hashlib.sha256(request.patch.encode()).hexdigest(),
-    #     files=files,
+    #     patch_hash=patch_hash,
+    #     files=applied_files,
     # )
     
     return PatchApplyResponse(
         success=True,
-        appliedFiles=files,
-        message="Patch applied (stub - Task C 구현 필요)",
+        appliedFiles=applied_files,
+        message=f"Patch applied successfully to {len(applied_files)} file(s)",
     )

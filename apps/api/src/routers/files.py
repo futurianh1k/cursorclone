@@ -5,6 +5,7 @@ Files 라우터
 - PUT /api/workspaces/{wsId}/files/content
 """
 
+import os
 from fastapi import APIRouter, HTTPException, status, Query
 from ..models import (
     FileTreeResponse,
@@ -14,6 +15,14 @@ from ..models import (
     UpdateFileContentRequest,
     UpdateFileContentResponse,
     ErrorResponse,
+)
+from ..utils.filesystem import (
+    get_workspace_root,
+    validate_path,
+    read_file_content,
+    write_file_content,
+    build_file_tree,
+    workspace_exists,
 )
 
 router = APIRouter(prefix="/api/workspaces/{ws_id}/files", tags=["files"])
@@ -48,44 +57,36 @@ def _validate_path(path: str) -> bool:
 async def get_file_tree(ws_id: str):
     """
     워크스페이스의 파일 트리를 반환합니다.
-    
-    TODO: 실제 파일 트리 조회 구현
-    - 파일시스템에서 디렉토리 구조 읽기
-    - 허용된 확장자 필터링
-    - 숨김 파일 제외 옵션
     """
-    # TODO: 워크스페이스 존재 여부 확인
+    dev_mode = os.getenv("DEV_MODE", "false").lower() == "true"
+    
     if not _validate_workspace_access(ws_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
         )
     
-    # TODO: 파일시스템에서 실제 트리 구조 읽기
-    # TODO: .gitignore 등 제외 패턴 적용
+    workspace_root = get_workspace_root(ws_id, dev_mode=dev_mode)
     
-    # 더미 데이터 반환
+    # 워크스페이스 존재 여부 확인
+    if not workspace_exists(workspace_root):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "Workspace not found", "code": "WS_NOT_FOUND"},
+        )
+    
+    # 파일 트리 생성
+    try:
+        tree = build_file_tree(workspace_root)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "Failed to build file tree", "code": "FILE_TREE_ERROR"},
+        )
+    
     return FileTreeResponse(
         workspaceId=ws_id,
-        tree=[
-            FileTreeItem(
-                name="src",
-                path="src",
-                type=FileType.DIRECTORY,
-                children=[
-                    FileTreeItem(
-                        name="main.py",
-                        path="src/main.py",
-                        type=FileType.FILE,
-                    ),
-                ],
-            ),
-            FileTreeItem(
-                name="README.md",
-                path="README.md",
-                type=FileType.FILE,
-            ),
-        ],
+        tree=tree,
     )
 
 
@@ -107,19 +108,8 @@ async def get_file_content(
 ):
     """
     파일 내용을 반환합니다.
-    
-    TODO: 실제 파일 읽기 구현
-    - 경로 검증 (탈출 방지)
-    - 파일 존재 여부 확인
-    - 인코딩 감지
-    - 바이너리 파일 처리
     """
-    # 경로 검증
-    if not _validate_path(path):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "Invalid path", "code": "FILE_INVALID_PATH"},
-        )
+    dev_mode = os.getenv("DEV_MODE", "false").lower() == "true"
     
     if not _validate_workspace_access(ws_id):
         raise HTTPException(
@@ -127,15 +117,42 @@ async def get_file_content(
             detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
         )
     
-    # TODO: 파일시스템에서 실제 파일 읽기
-    # TODO: 파일 크기 제한 확인
-    # TODO: 허용된 확장자인지 확인
+    workspace_root = get_workspace_root(ws_id, dev_mode=dev_mode)
     
-    # 더미 데이터 반환
+    # 워크스페이스 존재 여부 확인
+    if not workspace_exists(workspace_root):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "Workspace not found", "code": "WS_NOT_FOUND"},
+        )
+    
+    # 경로 검증 및 정규화
+    try:
+        file_path = validate_path(path, workspace_root)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "Invalid path", "code": "FILE_INVALID_PATH", "detail": str(e)},
+        )
+    
+    # 파일 읽기
+    try:
+        content, encoding = read_file_content(file_path)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "File not found", "code": "FILE_NOT_FOUND"},
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "File read error", "code": "FILE_READ_ERROR", "detail": str(e)},
+        )
+    
     return FileContentResponse(
         path=path,
-        content='print("hello on-prem poc")\n',
-        encoding="utf-8",
+        content=content,
+        encoding=encoding,
     )
 
 
@@ -160,19 +177,8 @@ async def update_file_content(
     
     ⚠️ 주의: 이 API는 직접 파일을 수정합니다.
     AI 기반 코드 변경은 /patch/apply를 사용해야 합니다.
-    
-    TODO: 실제 파일 쓰기 구현
-    - 경로 검증 (탈출 방지)
-    - 파일 존재 여부 확인
-    - 백업 생성 (옵션)
-    - 권한 확인
     """
-    # 경로 검증
-    if not _validate_path(request.path):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "Invalid path", "code": "FILE_INVALID_PATH"},
-        )
+    dev_mode = os.getenv("DEV_MODE", "false").lower() == "true"
     
     if not _validate_workspace_access(ws_id):
         raise HTTPException(
@@ -180,11 +186,45 @@ async def update_file_content(
             detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
         )
     
-    # TODO: 파일시스템에 실제 쓰기
+    workspace_root = get_workspace_root(ws_id, dev_mode=dev_mode)
+    
+    # 워크스페이스 존재 여부 확인
+    if not workspace_exists(workspace_root):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "Workspace not found", "code": "WS_NOT_FOUND"},
+        )
+    
+    # 경로 검증 및 정규화
+    try:
+        file_path = validate_path(request.path, workspace_root)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "Invalid path", "code": "FILE_INVALID_PATH", "detail": str(e)},
+        )
+    
+    # 파일 쓰기
+    try:
+        write_file_content(file_path, request.content, create_backup=False)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "File write error", "code": "FILE_WRITE_ERROR", "detail": str(e)},
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "Internal server error", "code": "INTERNAL_ERROR"},
+        )
+    
     # TODO: 감사 로그 기록 (해시만)
+    # import hashlib
+    # content_hash = hashlib.sha256(request.content.encode()).hexdigest()
+    # await audit_log.record(...)
     
     return UpdateFileContentResponse(
         path=request.path,
         success=True,
-        message="File updated (stub)",
+        message="File updated successfully",
     )
