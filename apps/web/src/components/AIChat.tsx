@@ -175,8 +175,8 @@ export default function AIChat({
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div style={{ padding: "12px", borderBottom: "1px solid #ddd" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+      <div style={{ flexShrink: 0, padding: "12px", borderBottom: "1px solid #ddd" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
           <h3 style={{ margin: 0, fontSize: "16px" }}>AI Chat</h3>
           <div style={{ display: "flex", gap: "4px" }}>
@@ -222,43 +222,16 @@ export default function AIChat({
       <div 
         ref={messagesContainerRef}
         style={{ 
-          flex: 1, 
+          flex: "1 1 0",
+          minHeight: 0,
           overflowY: "auto", 
           padding: "12px",
-          display: "flex",
-          flexDirection: "column",
         }}
       >
-        {/* 메시지 목록 */}
-        {messages.length > 0 ? (
-          <div style={{ flex: 1 }}>
-            {messages.map((msg, i) => (
-              <div
-                key={i}
-                style={{
-                  marginBottom: "12px",
-                  padding: "10px 12px",
-                  backgroundColor: msg.role === "user" ? "#e3f2fd" : "#f5f5f5",
-                  borderRadius: "12px",
-                  fontSize: "13px",
-                  maxWidth: "90%",
-                  marginLeft: msg.role === "user" ? "auto" : "0",
-                  marginRight: msg.role === "user" ? "0" : "auto",
-                  boxShadow: "0 1px 2px rgba(0,0,0,0.1)",
-                }}
-              >
-                <div style={{ fontSize: "10px", color: "#666", marginBottom: "4px", fontWeight: 500 }}>
-                  {msg.role === "user" ? "👤 You" : "🤖 AI"}
-                </div>
-                <div style={{ whiteSpace: "pre-wrap", lineHeight: "1.5" }}>{msg.content}</div>
-              </div>
-            ))}
-            {/* 자동 스크롤 앵커 */}
-            <div ref={messagesEndRef} />
-          </div>
-        ) : (
+        {/* 빈 상태 메시지 */}
+        {messages.length === 0 && !loading && (
           <div style={{ 
-            flex: 1, 
+            height: "100%",
             display: "flex", 
             alignItems: "center", 
             justifyContent: "center",
@@ -268,6 +241,29 @@ export default function AIChat({
             💬 AI에게 질문하세요
           </div>
         )}
+        
+        {/* 메시지 목록 */}
+        {messages.map((msg, i) => (
+          <div
+            key={i}
+            style={{
+              marginBottom: "12px",
+              padding: "10px 12px",
+              backgroundColor: msg.role === "user" ? "#e3f2fd" : "#f5f5f5",
+              borderRadius: "12px",
+              fontSize: "13px",
+              maxWidth: "90%",
+              marginLeft: msg.role === "user" ? "auto" : "0",
+              marginRight: msg.role === "user" ? "0" : "auto",
+              boxShadow: "0 1px 2px rgba(0,0,0,0.1)",
+            }}
+          >
+            <div style={{ fontSize: "10px", color: "#666", marginBottom: "4px", fontWeight: 500 }}>
+              {msg.role === "user" ? "👤 You" : "🤖 AI"}
+            </div>
+            <div style={{ whiteSpace: "pre-wrap", lineHeight: "1.5" }}>{msg.content}</div>
+          </div>
+        ))}
         
         {/* 로딩 인디케이터 */}
         {loading && (
@@ -285,10 +281,13 @@ export default function AIChat({
             <div style={{ color: "#666" }}>⏳ 생각 중...</div>
           </div>
         )}
+        
+        {/* 자동 스크롤 앵커 */}
+        <div ref={messagesEndRef} />
       </div>
 
       {/* 입력 영역 - 하단 고정 */}
-      <div style={{ padding: "12px", borderTop: "1px solid #eee", backgroundColor: "#fafafa" }}>
+      <div style={{ flexShrink: 0, padding: "12px", borderTop: "1px solid #eee", backgroundColor: "#fafafa" }}>
         {!diff ? (
           <div>
             <textarea
