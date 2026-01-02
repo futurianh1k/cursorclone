@@ -303,32 +303,35 @@ export default function AIChat({
               placeholder={mode === "chat" ? "질문을 입력하세요... (Enter로 전송)" : "코드 수정 지시사항을 입력하세요..."}
               style={{
                 width: "100%",
-                minHeight: "80px",
-                padding: "8px",
+                minHeight: "60px",
+                padding: "10px",
                 fontSize: "13px",
                 border: "1px solid #ddd",
-                borderRadius: "4px",
-                resize: "vertical",
+                borderRadius: "8px",
+                resize: "none",
                 fontFamily: "inherit",
+                boxSizing: "border-box",
+                outline: "none",
               }}
-              disabled={loading || (mode === "rewrite" && (!currentFile || !selection))}
+              disabled={loading}
             />
             <button
               onClick={handleSubmit}
-              disabled={loading || !instruction.trim() || (mode === "rewrite" && (!currentFile || !selection))}
+              disabled={loading || !instruction.trim()}
               style={{
                 marginTop: "8px",
-                padding: "8px 16px",
+                padding: "10px 16px",
                 fontSize: "13px",
-                backgroundColor: loading ? "#ccc" : "#007acc",
+                backgroundColor: (loading || !instruction.trim()) ? "#ccc" : "#007acc",
                 color: "white",
                 border: "none",
-                borderRadius: "4px",
-                cursor: loading ? "not-allowed" : "pointer",
+                borderRadius: "8px",
+                cursor: (loading || !instruction.trim()) ? "not-allowed" : "pointer",
                 width: "100%",
+                fontWeight: 500,
               }}
             >
-              {loading ? "처리 중..." : mode === "chat" ? "질문하기" : "코드 수정"}
+              {loading ? "⏳ 처리 중..." : mode === "chat" ? "💬 질문하기" : "✏️ 코드 수정"}
             </button>
             {mode === "rewrite" && (!currentFile || !selection) && (
               <div style={{ marginTop: "8px", fontSize: "11px", color: "#666" }}>
