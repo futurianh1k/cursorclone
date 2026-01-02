@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { rewriteCode, validatePatch, applyPatch, chatWithAI, AIRewriteRequest, AIChatRequest } from "@/lib/api";
 
 interface AIChatProps {
@@ -28,6 +28,17 @@ export default function AIChat({
   const [applying, setApplying] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [mode, setMode] = useState<"chat" | "rewrite">("chat");
+  
+  // 자동 스크롤을 위한 ref
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  
+  // 메시지가 추가될 때 자동 스크롤
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages]);
 
   const handleChat = async () => {
     if (!instruction.trim()) return;
@@ -207,30 +218,77 @@ export default function AIChat({
         )}
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "12px" }}>
+      {/* 메시지 영역 - 스크롤 가능 */}
+      <div 
+        ref={messagesContainerRef}
+        style={{ 
+          flex: 1, 
+          overflowY: "auto", 
+          padding: "12px",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
         {/* 메시지 목록 */}
-        {messages.length > 0 && (
-          <div style={{ marginBottom: "12px" }}>
+        {messages.length > 0 ? (
+          <div style={{ flex: 1 }}>
             {messages.map((msg, i) => (
               <div
                 key={i}
                 style={{
-                  marginBottom: "8px",
-                  padding: "8px",
+                  marginBottom: "12px",
+                  padding: "10px 12px",
                   backgroundColor: msg.role === "user" ? "#e3f2fd" : "#f5f5f5",
-                  borderRadius: "8px",
+                  borderRadius: "12px",
                   fontSize: "13px",
+                  maxWidth: "90%",
+                  marginLeft: msg.role === "user" ? "auto" : "0",
+                  marginRight: msg.role === "user" ? "0" : "auto",
+                  boxShadow: "0 1px 2px rgba(0,0,0,0.1)",
                 }}
               >
-                <div style={{ fontSize: "10px", color: "#666", marginBottom: "4px" }}>
-                  {msg.role === "user" ? "You" : "AI"}
+                <div style={{ fontSize: "10px", color: "#666", marginBottom: "4px", fontWeight: 500 }}>
+                  {msg.role === "user" ? "👤 You" : "🤖 AI"}
                 </div>
-                <div style={{ whiteSpace: "pre-wrap" }}>{msg.content}</div>
+                <div style={{ whiteSpace: "pre-wrap", lineHeight: "1.5" }}>{msg.content}</div>
               </div>
             ))}
+            {/* 자동 스크롤 앵커 */}
+            <div ref={messagesEndRef} />
+          </div>
+        ) : (
+          <div style={{ 
+            flex: 1, 
+            display: "flex", 
+            alignItems: "center", 
+            justifyContent: "center",
+            color: "#999",
+            fontSize: "13px",
+          }}>
+            💬 AI에게 질문하세요
           </div>
         )}
         
+        {/* 로딩 인디케이터 */}
+        {loading && (
+          <div style={{
+            padding: "10px 12px",
+            backgroundColor: "#f5f5f5",
+            borderRadius: "12px",
+            fontSize: "13px",
+            maxWidth: "90%",
+            marginBottom: "12px",
+          }}>
+            <div style={{ fontSize: "10px", color: "#666", marginBottom: "4px", fontWeight: 500 }}>
+              🤖 AI
+            </div>
+            <div style={{ color: "#666" }}>⏳ 생각 중...</div>
+          </div>
+        )}
+      </div>
+
+      {/* 입력 영역 - 하단 고정 */}
+      <div style={{ padding: "12px", borderTop: "1px solid #eee", backgroundColor: "#fafafa" }}>
         {!diff ? (
           <div>
             <textarea
@@ -351,6 +409,7 @@ export default function AIChat({
           </div>
         )}
       </div>
+      {/* 입력 영역 닫는 태그 */}
     </div>
   );
 }
