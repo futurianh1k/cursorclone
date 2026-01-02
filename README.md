@@ -10,63 +10,27 @@
 - `packages/prompt-templates`: 프롬프트 템플릿
 - `infra/llm`: vLLM 실행 예시 (온프레미스)
 
-## Quickstart (개발자 PC 또는 사내 Dev 서버)
+## Quickstart
 
-### 필수 요구사항
-- Node 20+, pnpm, Python 3.11+
+빠른 시작 가이드는 [Quickstart 문서](docs/QUICKSTART.md)를 참조하세요.
 
-### 설치
+### 빠른 시작 (요약)
 
-#### Node.js 의존성
 ```bash
+# 1. 의존성 설치
 pnpm -r install
-```
+cd apps/api && pip install -r requirements.txt
 
-#### Python 의존성 (API 서버)
+# 2. 워크스페이스 디렉토리 생성
+sudo mkdir -p /workspaces && sudo chown $USER:$USER /workspaces
 
-**방법 1: requirements.txt 사용 (권장)**
-```bash
-cd apps/api
-pip install -r requirements.txt
-
-# 개발 및 테스트 포함
-pip install -r requirements-dev.txt
-```
-
-**방법 2: pyproject.toml 사용**
-```bash
-cd apps/api
-pip install -e ".[test]"
-```
-
-### 실행
-
-#### 1. 워크스페이스 디렉토리 생성
-
-워크스페이스는 `/workspaces` 디렉토리에 저장됩니다:
-
-```bash
-sudo mkdir -p /workspaces
-sudo chown $USER:$USER /workspaces
-```
-
-#### 2. 서버 실행
-
-```bash
+# 3. 서버 실행
 # 터미널 1: API 서버
-cd apps/api
-uvicorn src.main:app --host 0.0.0.0 --port 8000
+cd apps/api && uvicorn src.main:app --host 0.0.0.0 --port 8000
 
 # 터미널 2: Web 서버
-cd apps/web
-pnpm dev
+cd apps/web && pnpm dev
 ```
-
-#### 3. 워크스페이스 사용
-
-브라우저에서 `http://localhost:3000` 접속 후:
-- **GitHub 클론**: GitHub 저장소 URL을 입력하여 클론
-- **빈 워크스페이스 생성**: 새 워크스페이스 생성
 
 브라우저에서 `http://localhost:3000` 접속
 
@@ -161,15 +125,25 @@ Patch Engine → File System
 
 ## 문서
 
-- `docs/architecture.md`: 시스템 아키텍처
-- `docs/api-spec.md`: API 명세
-- `docs/context-builder.md`: Context Builder 설계
-- `docs/workspace-container-architecture.md`: 컨테이너 기반 워크스페이스 설계
-- `docs/scalability-architecture.md`: 대규모 스케일링 아키텍처 (500명 규모)
-- `docs/admin-dashboard-architecture.md`: 관리자 대시보드 아키텍처
-- `docs/devops-guide.md`: CI/CD 및 배포 가이드
-- `docs/runbook-onprem.md`: 온프레미스 운영 가이드
-- `history/`: 변경 이력 문서
+### 시작하기
+- **[Quickstart](docs/QUICKSTART.md)**: 빠른 시작 가이드 (필수 읽기)
+- **[Architecture](docs/architecture.md)**: 시스템 아키텍처 개요
+
+### 개발 문서
+- **[API 명세](docs/api-spec.md)**: REST API 및 WebSocket 명세
+- **[Context Builder](docs/context-builder.md)**: Context Builder 설계 및 구현
+
+### 운영 문서
+- **[운영 가이드](docs/runbook-onprem.md)**: 온프레미스 환경 운영 가이드
+- **[DevOps 가이드](docs/devops-guide.md)**: CI/CD 및 배포 가이드
+
+### 아키텍처 문서
+- **[워크스페이스 컨테이너](docs/workspace-container-architecture.md)**: 컨테이너 기반 워크스페이스 설계
+- **[스케일링 아키텍처](docs/scalability-architecture.md)**: 대규모 스케일링 (500명 규모)
+- **[관리자 대시보드](docs/admin-dashboard-architecture.md)**: 관리자 대시보드 아키텍처
+
+### 변경 이력
+- `history/`: 프로젝트 변경 이력 문서
 
 ## 스케일링
 

@@ -24,6 +24,16 @@ case $ENVIRONMENT in
     ;;
 esac
 
+# 워크스페이스 디렉토리 생성 및 권한 설정
+# API 컨테이너가 appuser(uid=1000)로 실행되므로 해당 사용자가 쓸 수 있어야 함
+if [ ! -d "workspaces" ]; then
+  echo "📁 Creating workspaces directory..."
+  mkdir -p workspaces
+fi
+echo "🔐 Setting workspaces directory permissions..."
+sudo chown -R 1000:1000 workspaces 2>/dev/null || chown -R 1000:1000 workspaces 2>/dev/null || true
+chmod 755 workspaces
+
 # 액션별 실행
 case $ACTION in
   deploy)

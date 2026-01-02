@@ -24,25 +24,26 @@
 
 ### Phase 1: 핵심 기능 완성 (즉시 필요)
 
-#### 1.1 워크스페이스 컨테이너 관리 구현 🔴 **최우선**
+#### 1.1 워크스페이스 컨테이너 관리 구현 ✅ **완료**
 **목적**: 실제 Docker/Kubernetes 컨테이너로 워크스페이스 격리 및 실행
 
 **작업 내용**:
-- [ ] `WorkspaceManager` 서비스 구현
+- [x] `WorkspaceManager` 서비스 구현
   - Docker SDK (`docker-py`) 통합
   - 컨테이너 생성/삭제/재시작
   - 리소스 제한 설정 (CPU, Memory)
   - 볼륨 마운트 관리
-- [ ] 워크스페이스 컨테이너 라이프사이클 API
-  - `POST /api/workspaces/{id}/start` - 컨테이너 시작
-  - `POST /api/workspaces/{id}/stop` - 컨테이너 중지
-  - `GET /api/workspaces/{id}/status` - 컨테이너 상태 조회
-  - `GET /api/workspaces/{id}/logs` - 컨테이너 로그 조회
-- [ ] 컨테이너 내 명령 실행 API
+- [x] 워크스페이스 컨테이너 라이프사이클 API
+  - `POST /api/workspaces/{id}/container/start` - 컨테이너 시작
+  - `POST /api/workspaces/{id}/container/stop` - 컨테이너 중지
+  - `POST /api/workspaces/{id}/container/restart` - 컨테이너 재시작
+  - `DELETE /api/workspaces/{id}/container` - 컨테이너 삭제
+  - `GET /api/workspaces/{id}/container/status` - 컨테이너 상태 조회
+  - `GET /api/workspaces/{id}/container/logs` - 컨테이너 로그 조회
+- [x] 컨테이너 내 명령 실행 API
   - `POST /api/workspaces/{id}/execute` - 명령 실행
-  - WebSocket을 통한 실시간 출력
 
-**예상 시간**: 2-3일
+**완료일**: 2025-01-02
 
 #### 1.2 인프라 서버 실제 연결 구현 🔴 **최우선**
 **목적**: 등록된 서버에 실제로 연결하고 리소스 정보 수집
