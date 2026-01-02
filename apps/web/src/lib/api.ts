@@ -160,6 +160,35 @@ export async function explainCode(request: AIExplainRequest): Promise<AIExplainR
   return response.json();
 }
 
+// AI Chat - 대화형 인터페이스
+export interface AIChatRequest {
+  workspaceId: string;
+  message: string;
+  filePath?: string;
+  fileContent?: string;
+  selection?: { startLine: number; endLine: number };
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
+}
+
+export interface AIChatResponse {
+  response: string;
+  tokensUsed?: number;
+  suggestedAction?: string;
+}
+
+export async function chatWithAI(request: AIChatRequest): Promise<AIChatResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/ai/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to chat with AI: ${response.statusText}`);
+  }
+  return response.json();
+}
+
 export interface AIRewriteRequest {
   workspaceId: string;
   instruction: string;

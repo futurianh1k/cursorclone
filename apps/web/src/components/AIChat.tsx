@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { rewriteCode, validatePatch, applyPatch, explainCode, AIRewriteRequest } from "@/lib/api";
+import { rewriteCode, validatePatch, applyPatch, chatWithAI, AIRewriteRequest, AIChatRequest } from "@/lib/api";
 
 interface AIChatProps {
   workspaceId: string;
   currentFile?: string;
+  fileContent?: string;
   selection?: { startLine: number; endLine: number };
 }
 
@@ -17,6 +18,7 @@ interface Message {
 export default function AIChat({
   workspaceId,
   currentFile,
+  fileContent,
   selection,
 }: AIChatProps) {
   const [instruction, setInstruction] = useState("");
@@ -38,24 +40,30 @@ export default function AIChat({
       setLoading(true);
       setError(null);
       
-      // 파일이 선택된 경우 코드 설명 요청
-      if (currentFile) {
-        const response = await explainCode({
-          workspaceId,
-          filePath: currentFile,
-          selection: selection || undefined,
-        });
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: response.explanation },
-        ]);
-      } else {
-        // 파일이 없으면 일반 응답
+      // 새로운 chatWithAI API 사용 - 파일 유무와 관계없이 동작
+      const request: AIChatRequest = {
+        workspaceId,
+        message: userMessage,
+        filePath: currentFile,
+        fileContent: fileContent,
+        selection: selection,
+        history: messages.map(m => ({ role: m.role, content: m.content })),
+      };
+      
+      const response = await chatWithAI(request);
+      
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: response.response },
+      ]);
+      
+      // Rewrite가 제안된 경우 사용자에게 알림
+      if (response.suggestedAction === "rewrite" && currentFile && selection) {
         setMessages((prev) => [
           ...prev,
           { 
             role: "assistant", 
-            content: "파일을 선택하면 코드에 대해 질문할 수 있습니다. 현재는 코드 설명, 리라이트 기능을 지원합니다." 
+            content: "💡 코드 수정을 원하시면 **Rewrite** 모드로 전환해주세요." 
           },
         ]);
       }

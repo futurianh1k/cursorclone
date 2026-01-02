@@ -14,6 +14,7 @@ export default function Home() {
   const [workspaceId, setWorkspaceId] = useState<string>("");
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [currentFile, setCurrentFile] = useState<string | undefined>();
+  const [fileContent, setFileContent] = useState<string | undefined>();
   const [selection, setSelection] = useState<{ startLine: number; endLine: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [showSelector, setShowSelector] = useState(false);
@@ -56,6 +57,7 @@ export default function Home() {
 
   const handleFileSelect = (path: string) => {
     setCurrentFile(path);
+    setFileContent(undefined); // 파일 변경 시 초기화, CodeEditor에서 로드 후 설정
     setSelection(null);
   };
 
@@ -155,6 +157,7 @@ export default function Home() {
               workspaceId={workspaceId}
               filePath={currentFile}
               onSelectionChange={setSelection}
+              onContentChange={setFileContent}
             />
           </div>
         ) : (
@@ -177,6 +180,7 @@ export default function Home() {
         <AIChat
           workspaceId={workspaceId}
           currentFile={currentFile}
+          fileContent={fileContent}
           selection={selection || undefined}
         />
       </section>

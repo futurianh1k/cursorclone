@@ -229,6 +229,46 @@ class AIExplainResponse(BaseModel):
         populate_by_name = True
 
 
+# ============================================================
+# AI Chat (대화형 API)
+# ============================================================
+
+class ChatMessage(BaseModel):
+    """채팅 메시지"""
+    role: str = Field(..., pattern="^(user|assistant|system)$")
+    content: str
+
+
+class AIChatRequest(BaseModel):
+    """AI 채팅 요청 - 대화형 코드 질문/수정"""
+    workspace_id: str = Field(..., alias="workspaceId")
+    message: str = Field(..., min_length=1, description="사용자 질문 또는 지시")
+    file_path: Optional[str] = Field(default=None, alias="filePath", description="현재 열린 파일 경로")
+    file_content: Optional[str] = Field(default=None, alias="fileContent", description="파일 내용 (선택)")
+    selection: Optional[SelectionRange] = Field(default=None, description="선택된 코드 범위")
+    history: Optional[List[ChatMessage]] = Field(default=None, description="이전 대화 히스토리")
+    
+    @field_validator("file_path")
+    @classmethod
+    def validate_path(cls, v: Optional[str]) -> Optional[str]:
+        if v and ".." in v:
+            raise ValueError("Path traversal is not allowed")
+        return v
+    
+    class Config:
+        populate_by_name = True
+
+
+class AIChatResponse(BaseModel):
+    """AI 채팅 응답"""
+    response: str = Field(..., description="AI 응답")
+    tokens_used: int = Field(default=0, alias="tokensUsed")
+    suggested_action: Optional[str] = Field(default=None, alias="suggestedAction", description="제안 액션 (rewrite, explain 등)")
+    
+    class Config:
+        populate_by_name = True
+
+
 class AIRewriteRequest(BaseModel):
     """AI 코드 리라이트 요청"""
     workspace_id: str = Field(..., alias="workspaceId")

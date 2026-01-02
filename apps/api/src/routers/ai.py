@@ -8,6 +8,8 @@ from fastapi import APIRouter, HTTPException, status
 from ..models import (
     AIExplainRequest,
     AIExplainResponse,
+    AIChatRequest,
+    AIChatResponse,
     AIRewriteRequest,
     AIRewriteResponse,
     ErrorResponse,
@@ -255,6 +257,226 @@ vLLM 서버가 실행되고 있지 않거나 연결할 수 없습니다.
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error": "Internal server error", "code": "INTERNAL_ERROR"},
         )
+
+
+@router.post(
+    "/chat",
+    response_model=AIChatResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Invalid request"},
+        401: {"model": ErrorResponse, "description": "Unauthorized"},
+        403: {"model": ErrorResponse, "description": "Forbidden"},
+        503: {"model": ErrorResponse, "description": "LLM service unavailable"},
+    },
+    summary="AI 채팅",
+    description="코드에 대한 질문, 수정 요청, 주석 추가 등 자유로운 대화형 AI 인터페이스.",
+)
+async def chat_with_ai(request: AIChatRequest):
+    """
+    대화형 AI 인터페이스.
+    
+    - 사용자 질문 + 파일 컨텍스트를 함께 LLM에 전달
+    - "주석 달아줘", "이 코드 뭐야?", "버그 찾아줘" 등 자유로운 요청 처리
+    - 파일이 없어도 일반 질문 가능
+    
+    흐름: API → Context Builder → vLLM → 응답
+    """
+    if not _validate_workspace_access(request.workspace_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
+        )
+    
+    # 파일 경로 검증
+    if request.file_path and not _validate_path(request.file_path):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "Invalid path", "code": "AI_INVALID_PATH"},
+        )
+    
+    try:
+        import os
+        dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+        
+        # 파일 내용 가져오기
+        file_content = None
+        if request.file_path:
+            try:
+                if request.file_content:
+                    file_content = request.file_content
+                else:
+                    file_content = await _read_file_content(request.workspace_id, request.file_path)
+            except Exception as e:
+                # 파일 읽기 실패해도 채팅은 계속
+                file_content = f"[파일 읽기 실패: {e}]"
+        
+        # 선택된 코드 추출
+        selected_code = None
+        if file_content and request.selection:
+            lines = file_content.split("\n")
+            start = request.selection.start_line - 1
+            end = request.selection.end_line
+            selected_code = "\n".join(lines[start:end])
+        
+        if dev_mode:
+            # 개발 모드: Mock 응답 생성
+            response_text = _generate_mock_chat_response(
+                message=request.message,
+                file_path=request.file_path,
+                file_content=file_content,
+                selected_code=selected_code,
+            )
+            
+            return AIChatResponse(
+                response=response_text,
+                tokensUsed=0,
+                suggestedAction=_detect_action(request.message),
+            )
+        
+        # 프로덕션 모드: 실제 LLM 호출
+        context_builder = _get_context_builder(request.workspace_id)
+        
+        sources = []
+        if file_content:
+            sources.append(
+                ContextSource(
+                    type=ContextSourceType.SELECTION if selected_code else ContextSourceType.FILE,
+                    path=request.file_path,
+                    content=file_content,
+                    range=request.selection,
+                )
+            )
+        
+        context_request = ContextBuildRequest(
+            workspace_id=request.workspace_id,
+            action=ActionType.EXPLAIN,  # 일반 채팅도 EXPLAIN 타입 사용
+            instruction=request.message,
+            sources=sources,
+        )
+        
+        context_response = await context_builder.build(context_request)
+        
+        try:
+            llm_client = get_llm_client()
+            
+            messages = [
+                {"role": msg.role, "content": msg.content}
+                for msg in context_response.messages
+            ]
+            
+            llm_response = await llm_client.chat(messages=messages)
+            
+            response_text = llm_response.get("choices", [{}])[0].get("message", {}).get("content", "")
+            tokens_used = llm_response.get("usage", {}).get("total_tokens", 0)
+            
+            return AIChatResponse(
+                response=response_text or "[응답이 비어있습니다]",
+                tokensUsed=tokens_used,
+                suggestedAction=_detect_action(request.message),
+            )
+            
+        except (LLMTimeoutError, LLMError) as e:
+            # LLM 에러 시 친화적인 응답
+            return AIChatResponse(
+                response=f"⚠️ LLM 서비스에 연결할 수 없습니다.\n\n**에러**: {str(e)}\n\n`VLLM_BASE_URL` 환경변수를 확인해주세요.",
+                tokensUsed=0,
+            )
+            
+    except SecurityError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "Security validation failed", "code": "SECURITY_ERROR", "detail": str(e)},
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "Internal server error", "code": "INTERNAL_ERROR", "detail": str(e)},
+        )
+
+
+def _detect_action(message: str) -> str | None:
+    """사용자 메시지에서 제안 액션 감지"""
+    message_lower = message.lower()
+    
+    rewrite_keywords = ["수정", "변경", "바꿔", "추가", "삭제", "주석", "리팩터", "fix", "change", "add", "remove", "comment"]
+    explain_keywords = ["설명", "뭐야", "뭔가요", "알려줘", "어떻게", "explain", "what", "how", "why"]
+    
+    if any(kw in message_lower for kw in rewrite_keywords):
+        return "rewrite"
+    if any(kw in message_lower for kw in explain_keywords):
+        return "explain"
+    
+    return None
+
+
+def _generate_mock_chat_response(
+    message: str,
+    file_path: str | None,
+    file_content: str | None,
+    selected_code: str | None,
+) -> str:
+    """개발 모드용 Mock 응답 생성"""
+    # 사용자 요청 분석
+    action = _detect_action(message)
+    
+    if not file_path:
+        return f"""안녕하세요! 저는 코드 어시스턴트입니다.
+
+**질문**: {message}
+
+현재 파일이 선택되지 않았습니다. 파일을 열고 코드에 대해 질문하시면 더 정확한 도움을 드릴 수 있습니다.
+
+---
+> ⚠️ **개발 모드**: vLLM 서버가 연결되지 않았습니다.
+"""
+    
+    code_preview = selected_code or (file_content[:300] + "..." if file_content and len(file_content) > 300 else file_content)
+    
+    if action == "rewrite" and "주석" in message:
+        # 주석 추가 요청에 대한 Mock 응답
+        return f"""## 주석 추가 제안
+
+**파일**: `{file_path}`
+
+**요청**: {message}
+
+### 원본 코드
+```
+{code_preview}
+```
+
+### 제안된 변경사항
+
+코드에 주석을 추가하려면 **Rewrite 모드**를 사용하세요:
+1. 주석을 달 코드 영역을 선택
+2. "Rewrite" 모드로 전환
+3. "주석 달아줘"라고 입력
+
+---
+> ⚠️ **개발 모드**: 실제 코드 수정은 vLLM 연결 후 가능합니다.
+> `VLLM_BASE_URL` 환경변수를 설정하세요.
+"""
+    
+    return f"""## AI 응답
+
+**파일**: `{file_path}`
+
+**질문**: {message}
+
+### 코드 내용
+```
+{code_preview}
+```
+
+### 분석
+
+이 코드는 `{file_path}` 파일의 내용입니다.
+
+{f"선택된 영역 ({len(selected_code.split(chr(10)))}줄)을 분석했습니다." if selected_code else "전체 파일을 분석했습니다."}
+
+---
+> ⚠️ **개발 모드**: 실제 AI 분석은 vLLM 서버 연결 후 가능합니다.
+"""
 
 
 @router.post(

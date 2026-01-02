@@ -8,12 +8,14 @@ interface CodeEditorProps {
   workspaceId: string;
   filePath?: string;
   onSelectionChange?: (selection: { startLine: number; endLine: number } | null) => void;
+  onContentChange?: (content: string) => void;
 }
 
 export default function CodeEditor({
   workspaceId,
   filePath,
   onSelectionChange,
+  onContentChange,
 }: CodeEditorProps) {
   const [content, setContent] = useState("");
   const [language, setLanguage] = useState("python");
@@ -36,6 +38,7 @@ export default function CodeEditor({
       setError(null);
       const fileData = await getFileContent(workspaceId, filePath);
       setContent(fileData.content);
+      onContentChange?.(fileData.content);
 
       // 언어 감지
       const ext = filePath.split(".").pop()?.toLowerCase();
@@ -79,7 +82,9 @@ export default function CodeEditor({
   };
 
   const handleEditorChange = (value: string | undefined) => {
-    setContent(value || "");
+    const newContent = value || "";
+    setContent(newContent);
+    onContentChange?.(newContent);
   };
 
   const handleEditorMount = (editor: any, monaco: any) => {
