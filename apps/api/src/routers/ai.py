@@ -70,8 +70,7 @@ async def _read_file_content(workspace_id: str, file_path: str) -> str:
     import os
     from ..utils.filesystem import get_workspace_root, validate_path, read_file_content, workspace_exists
     
-    dev_mode = os.getenv("DEV_MODE", "false").lower() == "true"
-    workspace_root = get_workspace_root(workspace_id, dev_mode=dev_mode)
+    workspace_root = get_workspace_root(workspace_id)
     
     # 워크스페이스 존재 여부 확인
     if not workspace_exists(workspace_root):

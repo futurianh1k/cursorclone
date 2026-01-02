@@ -56,15 +56,13 @@ async def validate_patch(request: PatchValidateRequest):
     4. 패치 크기 제한
     5. 워크스페이스 내 파일인지 확인
     """
-    dev_mode = os.getenv("DEV_MODE", "false").lower() == "true"
-    
     if not _validate_workspace_access(request.workspace_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
         )
     
-    workspace_root = get_workspace_root(request.workspace_id, dev_mode=dev_mode)
+    workspace_root = get_workspace_root(request.workspace_id)
     
     # 워크스페이스 존재 여부 확인
     if not workspace_exists(workspace_root):
@@ -111,15 +109,13 @@ async def apply_patch(request: PatchApplyRequest):
     4. 패치 적용
     5. 감사 로그 기록 (해시만)
     """
-    dev_mode = os.getenv("DEV_MODE", "false").lower() == "true"
-    
     if not _validate_workspace_access(request.workspace_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
         )
     
-    workspace_root = get_workspace_root(request.workspace_id, dev_mode=dev_mode)
+    workspace_root = get_workspace_root(request.workspace_id)
     
     # 워크스페이스 존재 여부 확인
     if not workspace_exists(workspace_root):

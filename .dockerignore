@@ -1,0 +1,75 @@
+# Git
+.git
+.gitignore
+.github
+
+# Documentation
+docs
+*.md
+LICENSE
+
+# Node
+node_modules
+npm-debug.log
+# pnpm-lock.yaml is needed for builds
+.next
+out
+dist
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+.pytest_cache
+.coverage
+htmlcov
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs
+*.log
+
+# Testing
+tests
+*.test.js
+*.test.ts
+*.test.py
+
+# CI/CD
+.github
+.gitlab-ci.yml
+
+# Kubernetes
+k8s
+
+# Scripts
+scripts
+
+# History
+history
+
+# Workspaces
+workspaces
+
+# Temporary
+tmp
+temp
+*.tmp

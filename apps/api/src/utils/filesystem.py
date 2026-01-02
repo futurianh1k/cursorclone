@@ -47,23 +47,18 @@ EXCLUDE_PATTERNS = {
 }
 
 
-def get_workspace_root(workspace_id: str, dev_mode: bool = False) -> Path:
+def get_workspace_root(workspace_id: str) -> Path:
     """
     워크스페이스 루트 경로 가져오기
     
     Args:
         workspace_id: 워크스페이스 ID
-        dev_mode: 개발 모드 (True면 ~/cctv-fastapi 사용)
         
     Returns:
         워크스페이스 루트 Path 객체
     """
-    if dev_mode:
-        # 개발 모드: 샘플 저장소 사용
-        return Path.home() / "cctv-fastapi"
-    else:
-        # 운영 모드: /workspaces/{workspace_id}
-        return Path("/workspaces") / workspace_id
+    # 워크스페이스는 /workspaces/{workspace_id}에 저장
+    return Path("/workspaces") / workspace_id
 
 
 def validate_path(path: str, workspace_root: Path) -> Path:

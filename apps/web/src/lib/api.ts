@@ -30,7 +30,31 @@ export async function createWorkspace(name: string, language?: string): Promise<
     body: JSON.stringify({ name, language: language || "python" }),
   });
   if (!response.ok) {
-    throw new Error(`Failed to create workspace: ${response.statusText}`);
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to create workspace: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export interface CloneGitHubRequest {
+  repositoryUrl: string;
+  name?: string;
+  branch?: string;
+}
+
+export async function cloneGitHubRepository(
+  request: CloneGitHubRequest
+): Promise<Workspace> {
+  const response = await fetch(`${API_BASE_URL}/api/workspaces/clone`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(
+      error.detail?.error || error.detail?.detail || `Failed to clone repository: ${response.statusText}`
+    );
   }
   return response.json();
 }

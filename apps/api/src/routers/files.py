@@ -58,15 +58,13 @@ async def get_file_tree(ws_id: str):
     """
     워크스페이스의 파일 트리를 반환합니다.
     """
-    dev_mode = os.getenv("DEV_MODE", "false").lower() == "true"
-    
     if not _validate_workspace_access(ws_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
         )
     
-    workspace_root = get_workspace_root(ws_id, dev_mode=dev_mode)
+    workspace_root = get_workspace_root(ws_id)
     
     # 워크스페이스 존재 여부 확인
     if not workspace_exists(workspace_root):
@@ -109,15 +107,13 @@ async def get_file_content(
     """
     파일 내용을 반환합니다.
     """
-    dev_mode = os.getenv("DEV_MODE", "false").lower() == "true"
-    
     if not _validate_workspace_access(ws_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
         )
     
-    workspace_root = get_workspace_root(ws_id, dev_mode=dev_mode)
+    workspace_root = get_workspace_root(ws_id)
     
     # 워크스페이스 존재 여부 확인
     if not workspace_exists(workspace_root):
@@ -178,15 +174,13 @@ async def update_file_content(
     ⚠️ 주의: 이 API는 직접 파일을 수정합니다.
     AI 기반 코드 변경은 /patch/apply를 사용해야 합니다.
     """
-    dev_mode = os.getenv("DEV_MODE", "false").lower() == "true"
-    
     if not _validate_workspace_access(ws_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
         )
     
-    workspace_root = get_workspace_root(ws_id, dev_mode=dev_mode)
+    workspace_root = get_workspace_root(ws_id)
     
     # 워크스페이스 존재 여부 확인
     if not workspace_exists(workspace_root):

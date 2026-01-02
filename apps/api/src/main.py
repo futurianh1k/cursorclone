@@ -11,6 +11,15 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# .env 파일 로드 (apps/api/.env)
+# __file__ = apps/api/src/main.py
+# parent = apps/api/src
+# parent.parent = apps/api
+env_path = Path(__file__).parent.parent / ".env"
+load_dotenv(dotenv_path=env_path)
 
 from .routers import (
     auth_router,
@@ -19,6 +28,8 @@ from .routers import (
     ai_router,
     patch_router,
     ws_router,
+    admin_router,
+    container_router,
 )
 
 # ============================================================
@@ -104,12 +115,32 @@ def health():
     return {"ok": True, "version": "0.1.0"}
 
 
+# 개발용 디버그 엔드포인트
+@app.get("/debug/env", tags=["debug"])
+def debug_env():
+    """환경변수 디버깅 (개발용)"""
+    import os
+    from pathlib import Path
+    
+    env_path = Path(__file__).parent.parent / ".env"
+    workspaces_dir = Path("/workspaces")
+    return {
+        "env_file_path": str(env_path),
+        "env_file_exists": env_path.exists(),
+        "workspaces_dir": str(workspaces_dir),
+        "workspaces_dir_exists": workspaces_dir.exists(),
+        "workspaces": [str(p) for p in workspaces_dir.iterdir()] if workspaces_dir.exists() else [],
+    }
+
+
 # API 라우터 등록
 app.include_router(auth_router)
 app.include_router(workspaces_router)
 app.include_router(files_router)
 app.include_router(ai_router)
 app.include_router(patch_router)
+app.include_router(admin_router)
+app.include_router(container_router)  # 컨테이너 관리 라우터
 
 # WebSocket 라우터 등록
 app.include_router(ws_router)
@@ -121,19 +152,23 @@ app.include_router(ws_router)
 @app.on_event("startup")
 async def startup_event():
     """앱 시작 시 실행"""
-    # TODO: 초기화 작업
-    # - DB 연결
-    # - 설정 로드
+    # 데이터베이스 초기화
+    from .db import init_db
+    await init_db()
+    
+    # Redis 캐시 연결
+    from .services.cache_service import cache_service
+    await cache_service.connect()
     
     # vLLM 클라이언트는 필요 시 자동 생성됨 (get_llm_client)
-    pass
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """앱 종료 시 실행"""
-    # TODO: 정리 작업
-    # - DB 연결 종료
+    # Redis 캐시 연결 종료
+    from .services.cache_service import cache_service
+    await cache_service.disconnect()
     
     # LLM 클라이언트 종료
     from .llm import close_llm_client

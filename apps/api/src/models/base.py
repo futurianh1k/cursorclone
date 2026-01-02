@@ -24,11 +24,47 @@ class ErrorResponse(BaseModel):
 # Auth
 # ============================================================
 
+class SignUpRequest(BaseModel):
+    """회원가입 요청"""
+    email: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1, max_length=255)
+    password: str = Field(..., min_length=8, max_length=100)
+    org_name: Optional[str] = Field(default=None, max_length=255)
+    
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        import re
+        email_pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+        if not re.match(email_pattern, v):
+            raise ValueError("Invalid email format")
+        return v.lower()
+
+
+class LoginRequest(BaseModel):
+    """로그인 요청"""
+    email: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=1)
+
+
+class LoginResponse(BaseModel):
+    """로그인 응답"""
+    access_token: str = Field(..., alias="accessToken")
+    token_type: str = Field(default="bearer", alias="tokenType")
+    user: "UserResponse"
+    
+    class Config:
+        populate_by_name = True
+
+
 class UserResponse(BaseModel):
     """사용자 정보 응답"""
     user_id: str = Field(..., alias="userId")
+    email: str
     name: str
     org_id: str = Field(..., alias="orgId")
+    role: str = "developer"
+    avatar_url: Optional[str] = Field(default=None, alias="avatarUrl")
     
     class Config:
         populate_by_name = True
@@ -65,6 +101,28 @@ class WorkspaceResponse(BaseModel):
 class WorkspaceListResponse(BaseModel):
     """워크스페이스 목록 응답"""
     workspaces: List[WorkspaceResponse]
+
+
+class CloneGitHubRequest(BaseModel):
+    """GitHub 저장소 클론 요청"""
+    repository_url: str = Field(..., alias="repositoryUrl", min_length=1)
+    name: Optional[str] = Field(default=None, max_length=100)
+    branch: Optional[str] = Field(default=None, max_length=100)
+    
+    @field_validator("repository_url")
+    @classmethod
+    def validate_repository_url(cls, v: str) -> str:
+        # GitHub URL 형식 검증 (https://github.com/owner/repo 또는 git@github.com:owner/repo.git)
+        github_patterns = [
+            r"^https://github\.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(?:\.git)?$",
+            r"^git@github\.com:[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+\.git$",
+        ]
+        if not any(re.match(pattern, v) for pattern in github_patterns):
+            raise ValueError("Invalid GitHub repository URL")
+        return v
+    
+    class Config:
+        populate_by_name = True
 
 
 # ============================================================
@@ -255,3 +313,95 @@ class WSMessage(BaseModel):
     """WebSocket 메시지"""
     type: WSMessageType
     payload: dict
+
+
+# ============================================================
+# Admin / Infrastructure
+# ============================================================
+
+class ServerType(str, Enum):
+    """서버 타입"""
+    KUBERNETES = "kubernetes"
+    DOCKER = "docker"
+    SSH = "ssh"
+
+
+class ServerStatus(str, Enum):
+    """서버 상태"""
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    MAINTENANCE = "maintenance"
+
+
+class AuthType(str, Enum):
+    """인증 타입"""
+    SSH_KEY = "ssh_key"
+    MTLS = "mtls"
+    API_KEY = "api_key"
+
+
+class RegisterServerRequest(BaseModel):
+    """서버 등록 요청"""
+    name: str = Field(..., min_length=1, max_length=255)
+    host: str = Field(..., min_length=1)
+    port: int = Field(default=22, ge=1, le=65535)
+    type: ServerType
+    region: Optional[str] = Field(default=None, max_length=100)
+    zone: Optional[str] = Field(default=None, max_length=100)
+    max_workspaces: Optional[int] = Field(default=100, ge=1)
+    auth: dict = Field(..., description="인증 정보 (타입별로 다름)")
+    
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        if not re.match(r"^[a-zA-Z0-9_-]+$", v):
+            raise ValueError("Name must contain only alphanumeric characters, hyphens, and underscores")
+        return v
+
+
+class ServerResponse(BaseModel):
+    """서버 응답"""
+    id: str = Field(..., alias="serverId")
+    name: str
+    host: str
+    port: int
+    type: ServerType
+    region: Optional[str] = None
+    zone: Optional[str] = None
+    status: ServerStatus
+    max_workspaces: int
+    current_workspaces: int
+    cpu_capacity: Optional[float] = None
+    memory_capacity: Optional[int] = None
+    disk_capacity: Optional[int] = None
+    cpu_usage: Optional[float] = None
+    memory_usage: Optional[int] = None
+    disk_usage: Optional[int] = None
+    last_health_check: Optional[str] = None
+    
+    class Config:
+        populate_by_name = True
+
+
+class TestConnectionResponse(BaseModel):
+    """연결 테스트 응답"""
+    success: bool
+    message: str
+    resource_info: Optional[dict] = None
+
+
+class PlacementPolicyType(str, Enum):
+    """배치 정책 타입"""
+    ROUND_ROBIN = "round_robin"
+    LEAST_LOADED = "least_loaded"
+    REGION_BASED = "region_based"
+
+
+class PlacementRequest(BaseModel):
+    """워크스페이스 배치 요청"""
+    server_id: Optional[str] = Field(default=None, alias="serverId")
+    policy: Optional[PlacementPolicyType] = Field(default=PlacementPolicyType.LEAST_LOADED)
+    region: Optional[str] = None
+    
+    class Config:
+        populate_by_name = True
