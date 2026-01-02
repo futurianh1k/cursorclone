@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { getFileTree, FileTreeItem } from "@/lib/api";
+import { getFileTree, FileTreeItem, createFile } from "@/lib/api";
 
 interface FileTreeProps {
   workspaceId: string;
@@ -13,6 +13,9 @@ export default function FileTree({ workspaceId, onFileSelect }: FileTreeProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [showNewFileInput, setShowNewFileInput] = useState(false);
+  const [newFileName, setNewFileName] = useState("");
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     loadFileTree();
@@ -43,6 +46,23 @@ export default function FileTree({ workspaceId, onFileSelect }: FileTreeProps) {
       newExpanded.add(path);
     }
     setExpanded(newExpanded);
+  };
+
+  const handleCreateFile = async () => {
+    if (!newFileName.trim()) return;
+    
+    try {
+      setCreating(true);
+      await createFile(workspaceId, newFileName.trim());
+      setNewFileName("");
+      setShowNewFileInput(false);
+      await loadFileTree();
+      onFileSelect?.(newFileName.trim());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create file");
+    } finally {
+      setCreating(false);
+    }
   };
 
   const renderTreeItem = (item: FileTreeItem, level: number = 0) => {
@@ -114,8 +134,100 @@ export default function FileTree({ workspaceId, onFileSelect }: FileTreeProps) {
   }
 
   return (
-    <div style={{ overflowY: "auto", height: "100%" }}>
-      {tree.map((item) => renderTreeItem(item))}
+    <div style={{ overflowY: "auto", height: "100%", display: "flex", flexDirection: "column" }}>
+      {/* 새 파일 생성 버튼 */}
+      <div style={{ padding: "8px", borderBottom: "1px solid #eee" }}>
+        {!showNewFileInput ? (
+          <button
+            onClick={() => setShowNewFileInput(true)}
+            style={{
+              width: "100%",
+              padding: "6px 12px",
+              fontSize: "12px",
+              backgroundColor: "#f0f0f0",
+              border: "1px solid #ddd",
+              borderRadius: "4px",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "4px",
+            }}
+          >
+            <span>📄</span> New File
+          </button>
+        ) : (
+          <div style={{ display: "flex", gap: "4px" }}>
+            <input
+              type="text"
+              value={newFileName}
+              onChange={(e) => setNewFileName(e.target.value)}
+              placeholder="filename.py"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreateFile();
+                if (e.key === "Escape") {
+                  setShowNewFileInput(false);
+                  setNewFileName("");
+                }
+              }}
+              autoFocus
+              style={{
+                flex: 1,
+                padding: "4px 8px",
+                fontSize: "12px",
+                border: "1px solid #007acc",
+                borderRadius: "4px",
+                outline: "none",
+              }}
+              disabled={creating}
+            />
+            <button
+              onClick={handleCreateFile}
+              disabled={creating || !newFileName.trim()}
+              style={{
+                padding: "4px 8px",
+                fontSize: "12px",
+                backgroundColor: "#007acc",
+                color: "white",
+                border: "none",
+                borderRadius: "4px",
+                cursor: creating ? "not-allowed" : "pointer",
+              }}
+            >
+              ✓
+            </button>
+            <button
+              onClick={() => {
+                setShowNewFileInput(false);
+                setNewFileName("");
+              }}
+              disabled={creating}
+              style={{
+                padding: "4px 8px",
+                fontSize: "12px",
+                backgroundColor: "#6c757d",
+                color: "white",
+                border: "none",
+                borderRadius: "4px",
+                cursor: "pointer",
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+      </div>
+      
+      {/* 파일 트리 */}
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        {tree.length === 0 ? (
+          <div style={{ padding: "12px", fontSize: "12px", color: "#666", textAlign: "center" }}>
+            No files yet. Create a new file to get started.
+          </div>
+        ) : (
+          tree.map((item) => renderTreeItem(item))
+        )}
+      </div>
     </div>
   );
 }

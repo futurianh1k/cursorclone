@@ -121,6 +121,18 @@ export async function updateFileContent(
   return response.json();
 }
 
+/**
+ * 새 파일 생성 (빈 파일 또는 초기 내용 포함)
+ */
+export async function createFile(
+  workspaceId: string,
+  path: string,
+  content: string = ""
+): Promise<{ path: string; success: boolean; message?: string }> {
+  // PUT /files/content를 사용하여 파일 생성
+  return updateFileContent(workspaceId, path, content);
+}
+
 // ============================================================
 // AI
 // ============================================================

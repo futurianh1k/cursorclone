@@ -1,12 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { rewriteCode, validatePatch, applyPatch, AIRewriteRequest } from "@/lib/api";
+import { rewriteCode, validatePatch, applyPatch, explainCode, AIRewriteRequest } from "@/lib/api";
 
 interface AIChatProps {
   workspaceId: string;
   currentFile?: string;
   selection?: { startLine: number; endLine: number };
+}
+
+interface Message {
+  role: "user" | "assistant";
+  content: string;
 }
 
 export default function AIChat({
@@ -19,6 +24,47 @@ export default function AIChat({
   const [diff, setDiff] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [mode, setMode] = useState<"chat" | "rewrite">("chat");
+
+  const handleChat = async () => {
+    if (!instruction.trim()) return;
+    
+    const userMessage = instruction.trim();
+    setMessages([...messages, { role: "user", content: userMessage }]);
+    setInstruction("");
+    
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // 파일이 선택된 경우 코드 설명 요청
+      if (currentFile) {
+        const response = await explainCode({
+          workspaceId,
+          filePath: currentFile,
+          selection: selection || undefined,
+        });
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: response.explanation },
+        ]);
+      } else {
+        // 파일이 없으면 일반 응답
+        setMessages((prev) => [
+          ...prev,
+          { 
+            role: "assistant", 
+            content: "파일을 선택하면 코드에 대해 질문할 수 있습니다. 현재는 코드 설명, 리라이트 기능을 지원합니다." 
+          },
+        ]);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to get response");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleRewrite = async () => {
     if (!instruction.trim() || !currentFile || !selection) {
@@ -49,6 +95,14 @@ export default function AIChat({
       setError(err instanceof Error ? err.message : "Failed to rewrite code");
     } finally {
       setLoading(false);
+    }
+  };
+  
+  const handleSubmit = () => {
+    if (mode === "chat") {
+      handleChat();
+    } else {
+      handleRewrite();
     }
   };
 
@@ -104,21 +158,83 @@ export default function AIChat({
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ padding: "12px", borderBottom: "1px solid #ddd" }}>
-        <h3 style={{ margin: "0 0 8px 0", fontSize: "16px" }}>AI Chat</h3>
-        {currentFile && selection && (
-          <div style={{ fontSize: "11px", color: "#666", marginBottom: "8px" }}>
-            {currentFile} (lines {selection.startLine}-{selection.endLine})
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+          <h3 style={{ margin: 0, fontSize: "16px" }}>AI Chat</h3>
+          <div style={{ display: "flex", gap: "4px" }}>
+            <button
+              onClick={() => setMode("chat")}
+              style={{
+                padding: "4px 8px",
+                fontSize: "11px",
+                backgroundColor: mode === "chat" ? "#007acc" : "#f0f0f0",
+                color: mode === "chat" ? "white" : "#333",
+                border: "none",
+                borderRadius: "4px",
+                cursor: "pointer",
+              }}
+            >
+              Chat
+            </button>
+            <button
+              onClick={() => setMode("rewrite")}
+              style={{
+                padding: "4px 8px",
+                fontSize: "11px",
+                backgroundColor: mode === "rewrite" ? "#007acc" : "#f0f0f0",
+                color: mode === "rewrite" ? "white" : "#333",
+                border: "none",
+                borderRadius: "4px",
+                cursor: "pointer",
+              }}
+            >
+              Rewrite
+            </button>
+          </div>
+        </div>
+        {currentFile && (
+          <div style={{ fontSize: "11px", color: "#666" }}>
+            📄 {currentFile}
+            {selection && ` (lines ${selection.startLine}-${selection.endLine})`}
           </div>
         )}
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "12px" }}>
+        {/* 메시지 목록 */}
+        {messages.length > 0 && (
+          <div style={{ marginBottom: "12px" }}>
+            {messages.map((msg, i) => (
+              <div
+                key={i}
+                style={{
+                  marginBottom: "8px",
+                  padding: "8px",
+                  backgroundColor: msg.role === "user" ? "#e3f2fd" : "#f5f5f5",
+                  borderRadius: "8px",
+                  fontSize: "13px",
+                }}
+              >
+                <div style={{ fontSize: "10px", color: "#666", marginBottom: "4px" }}>
+                  {msg.role === "user" ? "You" : "AI"}
+                </div>
+                <div style={{ whiteSpace: "pre-wrap" }}>{msg.content}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        
         {!diff ? (
           <div>
             <textarea
               value={instruction}
               onChange={(e) => setInstruction(e.target.value)}
-              placeholder="코드 수정 지시사항을 입력하세요..."
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSubmit();
+                }
+              }}
+              placeholder={mode === "chat" ? "질문을 입력하세요... (Enter로 전송)" : "코드 수정 지시사항을 입력하세요..."}
               style={{
                 width: "100%",
                 minHeight: "80px",
@@ -129,11 +245,11 @@ export default function AIChat({
                 resize: "vertical",
                 fontFamily: "inherit",
               }}
-              disabled={loading || !currentFile || !selection}
+              disabled={loading || (mode === "rewrite" && (!currentFile || !selection))}
             />
             <button
-              onClick={handleRewrite}
-              disabled={loading || !instruction.trim() || !currentFile || !selection}
+              onClick={handleSubmit}
+              disabled={loading || !instruction.trim() || (mode === "rewrite" && (!currentFile || !selection))}
               style={{
                 marginTop: "8px",
                 padding: "8px 16px",
@@ -146,8 +262,13 @@ export default function AIChat({
                 width: "100%",
               }}
             >
-              {loading ? "처리 중..." : "코드 수정"}
+              {loading ? "처리 중..." : mode === "chat" ? "질문하기" : "코드 수정"}
             </button>
+            {mode === "rewrite" && (!currentFile || !selection) && (
+              <div style={{ marginTop: "8px", fontSize: "11px", color: "#666" }}>
+                💡 코드 수정을 하려면 파일을 열고 코드 영역을 선택하세요.
+              </div>
+            )}
           </div>
         ) : (
           <div>
