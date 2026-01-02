@@ -93,8 +93,8 @@ export default function Home() {
   }
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "280px 1fr 360px", height: "100vh" }}>
-      <aside style={{ borderRight: "1px solid #ddd", display: "flex", flexDirection: "column" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "280px 1fr 360px", height: "100vh", overflow: "hidden" }}>
+      <aside style={{ borderRight: "1px solid #ddd", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ padding: "12px", borderBottom: "1px solid #ddd" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
             <h3 style={{ margin: 0, fontSize: "16px" }}>Workspace</h3>
@@ -140,7 +140,7 @@ export default function Home() {
         </div>
       </aside>
 
-      <main style={{ borderRight: "1px solid #ddd", display: "flex", flexDirection: "column" }}>
+      <main style={{ borderRight: "1px solid #ddd", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {currentFile ? (
           <div style={{ flex: 1, overflow: "hidden" }}>
             <div
@@ -176,7 +176,7 @@ export default function Home() {
         )}
       </main>
 
-      <section style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <section style={{ display: "flex", flexDirection: "column", overflow: "hidden", height: "100%" }}>
         <AIChat
           workspaceId={workspaceId}
           currentFile={currentFile}
