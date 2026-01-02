@@ -153,8 +153,50 @@ async def explain_code(request: AIExplainRequest):
         
         context_response = await context_builder.build(context_request)
         
-        # vLLM 호출
+        # vLLM 호출 (개발 모드에서는 Mock 응답)
+        import os
+        dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+        
         try:
+            if dev_mode:
+                # 개발 모드: Mock 응답 생성
+                # 선택된 코드 추출
+                if request.selection:
+                    lines = file_content.split("\n")
+                    start = request.selection.start_line - 1
+                    end = request.selection.end_line
+                    selected_code = "\n".join(lines[start:end])
+                else:
+                    selected_code = file_content[:500] + ("..." if len(file_content) > 500 else "")
+                
+                explanation = f"""## 코드 분석 (개발 모드)
+
+**파일**: `{request.file_path}`
+
+### 코드 내용
+```
+{selected_code}
+```
+
+### 설명
+이 코드는 `{request.file_path}` 파일의 내용입니다.
+
+> ⚠️ **개발 모드**: 실제 LLM 서비스가 연결되지 않았습니다.
+> vLLM 서버를 시작하면 실제 AI 분석 결과를 받을 수 있습니다.
+
+**vLLM 설정 방법**:
+```bash
+# docker-compose.yml에 vLLM 서비스 추가 또는
+# VLLM_BASE_URL 환경변수 설정
+export VLLM_BASE_URL=http://your-vllm-server:8000/v1
+```
+"""
+                return AIExplainResponse(
+                    explanation=explanation,
+                    tokensUsed=0,
+                )
+            
+            # 프로덕션 모드: 실제 LLM 호출
             llm_client = get_llm_client()
             
             # 메시지 형식 변환
@@ -186,9 +228,21 @@ async def explain_code(request: AIExplainRequest):
                 detail={"error": "LLM timeout", "code": "LLM_TIMEOUT", "detail": str(e)},
             )
         except LLMError as e:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail={"error": "LLM service error", "code": "LLM_ERROR", "detail": str(e)},
+            # LLM 에러 시 개발 모드 응답 제공
+            explanation = f"""## LLM 서비스 연결 실패
+
+**에러**: {str(e)}
+
+vLLM 서버가 실행되고 있지 않거나 연결할 수 없습니다.
+
+**해결 방법**:
+1. vLLM 서버 상태 확인
+2. `VLLM_BASE_URL` 환경변수 확인
+3. 네트워크 연결 확인
+"""
+            return AIExplainResponse(
+                explanation=explanation,
+                tokensUsed=0,
             )
         
     except SecurityError as e:

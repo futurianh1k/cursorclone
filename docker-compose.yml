@@ -54,9 +54,11 @@ services:
       VLLM_BASE_URL: ${VLLM_BASE_URL:-http://localhost:8001/v1}
       VLLM_API_KEY: ${VLLM_API_KEY:-dummy-key}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DEV_MODE: ${DEV_MODE:-true}
     volumes:
       - ./workspaces:/workspaces
       - ./apps/api/.env:/app/.env:ro
+      - ./packages:/packages:ro
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
