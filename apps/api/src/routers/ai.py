@@ -334,35 +334,40 @@ async def chat_with_ai(request: AIChatRequest):
             )
         
         # 프로덕션 모드: 실제 LLM 호출
-        context_builder = _get_context_builder(request.workspace_id)
-        
-        sources = []
-        if file_content:
-            sources.append(
-                ContextSource(
-                    type=ContextSourceType.SELECTION if selected_code else ContextSourceType.FILE,
-                    path=request.file_path,
-                    content=file_content,
-                    range=request.selection,
-                )
-            )
-        
-        context_request = ContextBuildRequest(
-            workspace_id=request.workspace_id,
-            action=ActionType.EXPLAIN,  # 일반 채팅도 EXPLAIN 타입 사용
-            instruction=request.message,
-            sources=sources,
-        )
-        
-        context_response = await context_builder.build(context_request)
-        
         try:
             llm_client = get_llm_client()
             
-            messages = [
-                {"role": msg.role, "content": msg.content}
-                for msg in context_response.messages
-            ]
+            # 파일이 있으면 Context Builder 사용, 없으면 직접 호출
+            if file_content:
+                context_builder = _get_context_builder(request.workspace_id)
+                
+                sources = [
+                    ContextSource(
+                        type=ContextSourceType.SELECTION if selected_code else ContextSourceType.FILE,
+                        path=request.file_path,
+                        content=file_content,
+                        range=request.selection,
+                    )
+                ]
+                
+                context_request = ContextBuildRequest(
+                    workspace_id=request.workspace_id,
+                    action=ActionType.EXPLAIN,
+                    instruction=request.message,
+                    sources=sources,
+                )
+                
+                context_response = await context_builder.build(context_request)
+                messages = [
+                    {"role": msg.role, "content": msg.content}
+                    for msg in context_response.messages
+                ]
+            else:
+                # 파일 없이 일반 채팅
+                messages = [
+                    {"role": "system", "content": "You are a helpful coding assistant. Answer questions about programming, software development, and technology. Respond in the same language as the user's question."},
+                    {"role": "user", "content": request.message},
+                ]
             
             llm_response = await llm_client.chat(messages=messages)
             

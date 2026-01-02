@@ -43,25 +43,28 @@ class LLMClient:
             retry_delay: 재시도 간 지연 시간 (초)
         """
         self.base_url = base_url or os.getenv("VLLM_BASE_URL", "http://localhost:8001/v1")
-        self.api_key = api_key or os.getenv("VLLM_API_KEY", "dummy-key")
+        self.api_key = api_key or os.getenv("VLLM_API_KEY", "")
         self.timeout = timeout
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         
         # httpx 클라이언트 설정
+        headers = {"Content-Type": "application/json"}
+        
+        # API 키가 있는 경우에만 Authorization 헤더 추가
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
             timeout=timeout,
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
+            headers=headers,
         )
     
     async def chat(
         self,
         messages: List[Dict[str, str]],
-        model: str = "Qwen/Qwen2.5-Coder-7B-Instruct",
+        model: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         stream: bool = False,
@@ -86,8 +89,11 @@ class LLMClient:
         if stream:
             raise ValueError("Use chat_stream() for streaming requests")
         
+        # 모델 이름: 파라미터 > 환경변수 > 기본값
+        model_name = model or os.getenv("VLLM_MODEL", "Qwen/Qwen2.5-Coder-7B-Instruct")
+        
         payload = {
-            "model": model,
+            "model": model_name,
             "messages": messages,
             "temperature": temperature,
         }
@@ -135,7 +141,7 @@ class LLMClient:
     async def chat_stream(
         self,
         messages: List[Dict[str, str]],
-        model: str = "Qwen/Qwen2.5-Coder-7B-Instruct",
+        model: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
     ) -> AsyncIterator[str]:
@@ -155,8 +161,11 @@ class LLMClient:
             LLMError: LLM 오류
             LLMTimeoutError: 타임아웃 오류
         """
+        # 모델 이름: 파라미터 > 환경변수 > 기본값
+        model_name = model or os.getenv("VLLM_MODEL", "Qwen/Qwen2.5-Coder-7B-Instruct")
+        
         payload = {
-            "model": model,
+            "model": model_name,
             "messages": messages,
             "temperature": temperature,
             "stream": True,
