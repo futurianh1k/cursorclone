@@ -25,6 +25,18 @@ from .base import (
     ChatMessage,
     AIChatRequest,
     AIChatResponse,
+    # AI Modes (Agent, Plan, Ask, Debug)
+    AIMode,
+    TaskStep,
+    AIPlanRequest,
+    AIPlanResponse,
+    AIAgentRequest,
+    FileChange,
+    AIAgentResponse,
+    AIDebugRequest,
+    BugFix,
+    AIDebugResponse,
+    # Rewrite
     AIRewriteRequest,
     AIRewriteResponse,
     PatchValidateRequest,
@@ -79,7 +91,7 @@ __all__ = [
     "FileContentResponse",
     "UpdateFileContentRequest",
     "UpdateFileContentResponse",
-    # AI
+    # AI - Basic
     "SelectionRange",
     "AIExplainRequest",
     "AIExplainResponse",
@@ -88,6 +100,17 @@ __all__ = [
     "AIChatResponse",
     "AIRewriteRequest",
     "AIRewriteResponse",
+    # AI - Modes (Agent, Plan, Ask, Debug)
+    "AIMode",
+    "TaskStep",
+    "AIPlanRequest",
+    "AIPlanResponse",
+    "AIAgentRequest",
+    "FileChange",
+    "AIAgentResponse",
+    "AIDebugRequest",
+    "BugFix",
+    "AIDebugResponse",
     # Patch
     "PatchValidateRequest",
     "PatchValidateResponse",

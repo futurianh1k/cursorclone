@@ -1,7 +1,11 @@
 """
 AI 라우터
-- POST /api/ai/explain
-- POST /api/ai/rewrite
+- POST /api/ai/explain   - 코드 설명
+- POST /api/ai/chat      - 대화형 채팅
+- POST /api/ai/rewrite   - 코드 수정
+- POST /api/ai/plan      - 작업 계획 수립
+- POST /api/ai/agent     - 자동 코드 작성/수정
+- POST /api/ai/debug     - 버그 분석/수정
 """
 
 from fastapi import APIRouter, HTTPException, status
@@ -12,6 +16,17 @@ from ..models import (
     AIChatResponse,
     AIRewriteRequest,
     AIRewriteResponse,
+    # AI Modes
+    AIMode,
+    AIPlanRequest,
+    AIPlanResponse,
+    TaskStep,
+    AIAgentRequest,
+    AIAgentResponse,
+    FileChange,
+    AIDebugRequest,
+    AIDebugResponse,
+    BugFix,
     ErrorResponse,
 )
 from ..context_builder import (
@@ -620,3 +635,638 @@ async def rewrite_code(request: AIRewriteRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error": "Internal server error", "code": "INTERNAL_ERROR"},
         )
+
+
+# ============================================================
+# AI Plan Mode - 작업 계획 수립
+# ============================================================
+
+@router.post(
+    "/plan",
+    response_model=AIPlanResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Invalid request"},
+        403: {"model": ErrorResponse, "description": "Forbidden"},
+        503: {"model": ErrorResponse, "description": "LLM service unavailable"},
+    },
+    summary="작업 계획 수립 (Plan 모드)",
+    description="목표를 분석하고 단계별 실행 계획을 생성합니다.",
+)
+async def create_plan(request: AIPlanRequest):
+    """
+    사용자가 제시한 목표를 분석하고, 이를 달성하기 위한 
+    단계별 실행 계획을 생성합니다.
+    
+    예시:
+    - "로그인 기능 추가"
+    - "테스트 코드 작성"
+    - "코드 리팩토링"
+    """
+    if not _validate_workspace_access(request.workspace_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
+        )
+    
+    try:
+        import os
+        dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+        
+        # 관련 파일 내용 수집
+        file_contents = {}
+        if request.file_paths:
+            for fp in request.file_paths[:5]:  # 최대 5개 파일
+                if _validate_path(fp):
+                    try:
+                        content = await _read_file_content(request.workspace_id, fp)
+                        file_contents[fp] = content
+                    except:
+                        pass
+        
+        if dev_mode:
+            # 개발 모드: Mock 계획 생성
+            steps = _generate_mock_plan_steps(request.goal, file_contents)
+            return AIPlanResponse(
+                summary=f"'{request.goal}'를 위한 실행 계획입니다. (개발 모드)",
+                steps=steps,
+                estimatedChanges=len(steps),
+                tokensUsed=0,
+            )
+        
+        # 프로덕션 모드: 실제 LLM 호출
+        try:
+            llm_client = get_llm_client()
+            
+            # Plan 프롬프트 구성
+            files_context = ""
+            if file_contents:
+                files_context = "\n\n관련 파일:\n" + "\n".join([
+                    f"### {fp}\n```\n{content[:500]}...\n```" 
+                    for fp, content in file_contents.items()
+                ])
+            
+            messages = [
+                {"role": "system", "content": """You are a planning assistant. Given a goal, create a detailed step-by-step plan.
+
+Output format (JSON):
+{
+  "summary": "Brief summary of the plan",
+  "steps": [
+    {"stepNumber": 1, "description": "Step description", "filePath": "optional/file/path.py"},
+    ...
+  ]
+}
+
+Keep the plan focused and actionable. Each step should be clear and specific."""},
+                {"role": "user", "content": f"Goal: {request.goal}\n\nContext: {request.context or 'None'}{files_context}"}
+            ]
+            
+            llm_response = await llm_client.chat(messages=messages)
+            response_text = llm_response.get("choices", [{}])[0].get("message", {}).get("content", "")
+            tokens_used = llm_response.get("usage", {}).get("total_tokens", 0)
+            
+            # JSON 파싱 시도
+            try:
+                import json
+                # JSON 블록 추출
+                if "```json" in response_text:
+                    json_str = response_text.split("```json")[1].split("```")[0]
+                elif "```" in response_text:
+                    json_str = response_text.split("```")[1].split("```")[0]
+                else:
+                    json_str = response_text
+                    
+                plan_data = json.loads(json_str.strip())
+                steps = [
+                    TaskStep(
+                        stepNumber=s.get("stepNumber", i+1),
+                        description=s.get("description", ""),
+                        filePath=s.get("filePath"),
+                    )
+                    for i, s in enumerate(plan_data.get("steps", []))
+                ]
+                summary = plan_data.get("summary", f"Plan for: {request.goal}")
+            except:
+                # 파싱 실패시 기본 응답
+                steps = [TaskStep(stepNumber=1, description=response_text[:500])]
+                summary = f"Plan for: {request.goal}"
+            
+            return AIPlanResponse(
+                summary=summary,
+                steps=steps,
+                estimatedChanges=len(steps),
+                tokensUsed=tokens_used,
+            )
+            
+        except (LLMTimeoutError, LLMError) as e:
+            # LLM 오류시 기본 계획 반환
+            return AIPlanResponse(
+                summary=f"⚠️ LLM 연결 실패: {str(e)}",
+                steps=[TaskStep(stepNumber=1, description="LLM 서버 연결 확인 필요")],
+                estimatedChanges=0,
+                tokensUsed=0,
+            )
+            
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "Internal server error", "code": "INTERNAL_ERROR", "detail": str(e)},
+        )
+
+
+def _generate_mock_plan_steps(goal: str, file_contents: dict) -> list:
+    """개발 모드용 Mock 계획 단계 생성"""
+    goal_lower = goal.lower()
+    
+    if "로그인" in goal_lower or "auth" in goal_lower:
+        return [
+            TaskStep(stepNumber=1, description="사용자 모델 및 DB 스키마 정의", filePath="src/models/user.py"),
+            TaskStep(stepNumber=2, description="비밀번호 해싱 유틸리티 구현", filePath="src/utils/auth.py"),
+            TaskStep(stepNumber=3, description="로그인 API 엔드포인트 생성", filePath="src/routers/auth.py"),
+            TaskStep(stepNumber=4, description="JWT 토큰 발급 로직 구현", filePath="src/services/jwt.py"),
+            TaskStep(stepNumber=5, description="로그인 테스트 작성", filePath="tests/test_auth.py"),
+        ]
+    elif "테스트" in goal_lower or "test" in goal_lower:
+        return [
+            TaskStep(stepNumber=1, description="테스트 환경 설정 (pytest)", filePath="pytest.ini"),
+            TaskStep(stepNumber=2, description="유닛 테스트 작성", filePath="tests/test_unit.py"),
+            TaskStep(stepNumber=3, description="통합 테스트 작성", filePath="tests/test_integration.py"),
+            TaskStep(stepNumber=4, description="테스트 커버리지 확인"),
+        ]
+    elif "리팩토링" in goal_lower or "refactor" in goal_lower:
+        return [
+            TaskStep(stepNumber=1, description="중복 코드 식별 및 분석"),
+            TaskStep(stepNumber=2, description="공통 유틸리티 함수 추출", filePath="src/utils/common.py"),
+            TaskStep(stepNumber=3, description="기존 코드에서 유틸리티 사용하도록 수정"),
+            TaskStep(stepNumber=4, description="테스트 실행 및 확인"),
+        ]
+    else:
+        # 일반적인 계획
+        return [
+            TaskStep(stepNumber=1, description=f"'{goal}' 요구사항 분석"),
+            TaskStep(stepNumber=2, description="필요한 파일/모듈 식별"),
+            TaskStep(stepNumber=3, description="코드 구현"),
+            TaskStep(stepNumber=4, description="테스트 작성 및 실행"),
+            TaskStep(stepNumber=5, description="문서화"),
+        ]
+
+
+# ============================================================
+# AI Agent Mode - 자동 코드 작성/수정
+# ============================================================
+
+@router.post(
+    "/agent",
+    response_model=AIAgentResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Invalid request"},
+        403: {"model": ErrorResponse, "description": "Forbidden"},
+        503: {"model": ErrorResponse, "description": "LLM service unavailable"},
+    },
+    summary="자동 코드 작성/수정 (Agent 모드)",
+    description="지시사항에 따라 자동으로 코드를 분석하고 변경 사항을 제안합니다.",
+)
+async def run_agent(request: AIAgentRequest):
+    """
+    에이전트 모드: 사용자 지시에 따라 자동으로 코드를 분석하고,
+    필요한 파일을 수정/생성/삭제하는 변경 사항을 제안합니다.
+    
+    auto_apply=True인 경우 변경 사항을 직접 적용합니다.
+    (⚠️ 주의: 현재 PoC에서는 auto_apply는 무시됩니다)
+    """
+    if not _validate_workspace_access(request.workspace_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
+        )
+    
+    try:
+        import os
+        dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+        
+        # 관련 파일 내용 수집
+        file_contents = {}
+        if request.file_paths:
+            for fp in request.file_paths[:10]:  # 최대 10개 파일
+                if _validate_path(fp):
+                    try:
+                        content = await _read_file_content(request.workspace_id, fp)
+                        file_contents[fp] = content
+                    except:
+                        pass
+        
+        if dev_mode:
+            # 개발 모드: Mock 응답 생성
+            changes = _generate_mock_agent_changes(request.instruction, file_contents)
+            return AIAgentResponse(
+                summary=f"'{request.instruction}' 작업 완료 (개발 모드)",
+                changes=changes,
+                applied=False,
+                tokensUsed=0,
+            )
+        
+        # 프로덕션 모드: 실제 LLM 호출
+        try:
+            llm_client = get_llm_client()
+            
+            # Agent 프롬프트 구성
+            files_context = ""
+            if file_contents:
+                files_context = "\n\nFiles to modify:\n" + "\n".join([
+                    f"### {fp}\n```\n{content}\n```" 
+                    for fp, content in file_contents.items()
+                ])
+            
+            messages = [
+                {"role": "system", "content": """You are a coding agent. Given an instruction, analyze the code and provide specific changes.
+
+Output format (JSON):
+{
+  "summary": "What was done",
+  "changes": [
+    {
+      "filePath": "path/to/file.py",
+      "action": "modify|create|delete",
+      "diff": "--- a/file.py\\n+++ b/file.py\\n@@ -1,3 +1,4 @@\\n...",
+      "description": "What this change does"
+    }
+  ]
+}
+
+Be specific and provide actual code changes in unified diff format."""},
+                {"role": "user", "content": f"Instruction: {request.instruction}{files_context}"}
+            ]
+            
+            llm_response = await llm_client.chat(messages=messages)
+            response_text = llm_response.get("choices", [{}])[0].get("message", {}).get("content", "")
+            tokens_used = llm_response.get("usage", {}).get("total_tokens", 0)
+            
+            # JSON 파싱 시도
+            try:
+                import json
+                if "```json" in response_text:
+                    json_str = response_text.split("```json")[1].split("```")[0]
+                elif "```" in response_text:
+                    json_str = response_text.split("```")[1].split("```")[0]
+                else:
+                    json_str = response_text
+                    
+                agent_data = json.loads(json_str.strip())
+                changes = [
+                    FileChange(
+                        filePath=c.get("filePath", "unknown"),
+                        action=c.get("action", "modify"),
+                        diff=c.get("diff"),
+                        description=c.get("description", ""),
+                    )
+                    for c in agent_data.get("changes", [])
+                ]
+                summary = agent_data.get("summary", "Changes generated")
+            except:
+                changes = [FileChange(
+                    filePath="unknown",
+                    action="modify",
+                    description=response_text[:500],
+                )]
+                summary = "Agent response (parsing failed)"
+            
+            return AIAgentResponse(
+                summary=summary,
+                changes=changes,
+                applied=False,  # PoC에서는 자동 적용 비활성화
+                tokensUsed=tokens_used,
+            )
+            
+        except (LLMTimeoutError, LLMError) as e:
+            return AIAgentResponse(
+                summary=f"⚠️ LLM 연결 실패: {str(e)}",
+                changes=[],
+                applied=False,
+                tokensUsed=0,
+            )
+            
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "Internal server error", "code": "INTERNAL_ERROR", "detail": str(e)},
+        )
+
+
+def _generate_mock_agent_changes(instruction: str, file_contents: dict) -> list:
+    """개발 모드용 Mock Agent 변경 사항 생성"""
+    changes = []
+    
+    if "주석" in instruction or "comment" in instruction.lower():
+        for fp, content in file_contents.items():
+            lines = content.split("\n")
+            diff_lines = [f"--- a/{fp}", f"+++ b/{fp}", "@@ -1,3 +1,4 @@"]
+            if lines:
+                diff_lines.append(f"+# {instruction}")
+                diff_lines.append(f" {lines[0]}")
+            
+            changes.append(FileChange(
+                filePath=fp,
+                action="modify",
+                diff="\n".join(diff_lines),
+                description=f"{fp}에 주석 추가",
+            ))
+    elif "생성" in instruction or "create" in instruction.lower():
+        changes.append(FileChange(
+            filePath="new_file.py",
+            action="create",
+            diff="""--- /dev/null
++++ b/new_file.py
+@@ -0,0 +1,5 @@
++\"\"\"
++Auto-generated file
++\"\"\"
++
++# TODO: Implement
+""",
+            description="새 파일 생성",
+        ))
+    else:
+        # 기존 파일 수정 제안
+        for fp in list(file_contents.keys())[:2]:
+            changes.append(FileChange(
+                filePath=fp,
+                action="modify",
+                description=f"'{instruction}'에 따라 {fp} 수정 필요 (개발 모드)",
+            ))
+    
+    if not changes:
+        changes.append(FileChange(
+            filePath="example.py",
+            action="modify",
+            description=f"'{instruction}' 작업을 위한 변경 사항 (개발 모드)",
+        ))
+    
+    return changes
+
+
+# ============================================================
+# AI Debug Mode - 버그 분석/수정
+# ============================================================
+
+@router.post(
+    "/debug",
+    response_model=AIDebugResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Invalid request"},
+        403: {"model": ErrorResponse, "description": "Forbidden"},
+        503: {"model": ErrorResponse, "description": "LLM service unavailable"},
+    },
+    summary="버그 분석/수정 (Debug 모드)",
+    description="에러 메시지, 스택 트레이스, 코드를 분석하여 버그 원인과 해결책을 제시합니다.",
+)
+async def debug_code(request: AIDebugRequest):
+    """
+    디버그 모드: 에러 메시지, 스택 트레이스, 관련 코드를 분석하여
+    버그의 원인을 진단하고 수정 방안을 제시합니다.
+    """
+    if not _validate_workspace_access(request.workspace_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
+        )
+    
+    if not request.error_message and not request.stack_trace and not request.description:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "At least one of error_message, stack_trace, or description is required", "code": "DEBUG_NO_INPUT"},
+        )
+    
+    try:
+        import os
+        dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+        
+        # 파일 내용 가져오기
+        file_content = None
+        if request.file_path and _validate_path(request.file_path):
+            try:
+                if request.file_content:
+                    file_content = request.file_content
+                else:
+                    file_content = await _read_file_content(request.workspace_id, request.file_path)
+            except:
+                pass
+        
+        if dev_mode:
+            # 개발 모드: Mock 진단 생성
+            diagnosis, root_cause, fixes, tips = _generate_mock_debug_response(
+                error_message=request.error_message,
+                stack_trace=request.stack_trace,
+                file_path=request.file_path,
+                file_content=file_content,
+                description=request.description,
+            )
+            return AIDebugResponse(
+                diagnosis=diagnosis,
+                rootCause=root_cause,
+                fixes=fixes,
+                preventionTips=tips,
+                tokensUsed=0,
+            )
+        
+        # 프로덕션 모드: 실제 LLM 호출
+        try:
+            llm_client = get_llm_client()
+            
+            # Debug 프롬프트 구성
+            debug_context = []
+            if request.error_message:
+                debug_context.append(f"Error Message:\n{request.error_message}")
+            if request.stack_trace:
+                debug_context.append(f"Stack Trace:\n{request.stack_trace}")
+            if request.description:
+                debug_context.append(f"Description:\n{request.description}")
+            if file_content:
+                debug_context.append(f"Code ({request.file_path}):\n```\n{file_content}\n```")
+            
+            messages = [
+                {"role": "system", "content": """You are a debugging expert. Analyze the error and provide a diagnosis.
+
+Output format (JSON):
+{
+  "diagnosis": "Detailed analysis of the problem",
+  "rootCause": "The root cause of the bug",
+  "fixes": [
+    {
+      "filePath": "path/to/file.py",
+      "lineNumber": 42,
+      "originalCode": "old code",
+      "fixedCode": "new code",
+      "explanation": "Why this fixes the issue"
+    }
+  ],
+  "preventionTips": ["Tip 1", "Tip 2"]
+}
+
+Be thorough and specific in your analysis."""},
+                {"role": "user", "content": "\n\n".join(debug_context)}
+            ]
+            
+            llm_response = await llm_client.chat(messages=messages)
+            response_text = llm_response.get("choices", [{}])[0].get("message", {}).get("content", "")
+            tokens_used = llm_response.get("usage", {}).get("total_tokens", 0)
+            
+            # JSON 파싱 시도
+            try:
+                import json
+                if "```json" in response_text:
+                    json_str = response_text.split("```json")[1].split("```")[0]
+                elif "```" in response_text:
+                    json_str = response_text.split("```")[1].split("```")[0]
+                else:
+                    json_str = response_text
+                    
+                debug_data = json.loads(json_str.strip())
+                fixes = [
+                    BugFix(
+                        filePath=f.get("filePath", request.file_path or "unknown"),
+                        lineNumber=f.get("lineNumber"),
+                        originalCode=f.get("originalCode", ""),
+                        fixedCode=f.get("fixedCode", ""),
+                        explanation=f.get("explanation", ""),
+                    )
+                    for f in debug_data.get("fixes", [])
+                ]
+                diagnosis = debug_data.get("diagnosis", "Analysis complete")
+                root_cause = debug_data.get("rootCause", "Unknown")
+                tips = debug_data.get("preventionTips", [])
+            except:
+                diagnosis = response_text[:500]
+                root_cause = "LLM 응답 파싱 실패"
+                fixes = []
+                tips = []
+            
+            return AIDebugResponse(
+                diagnosis=diagnosis,
+                rootCause=root_cause,
+                fixes=fixes,
+                preventionTips=tips,
+                tokensUsed=tokens_used,
+            )
+            
+        except (LLMTimeoutError, LLMError) as e:
+            return AIDebugResponse(
+                diagnosis=f"⚠️ LLM 연결 실패: {str(e)}",
+                rootCause="LLM 서비스 연결 필요",
+                fixes=[],
+                preventionTips=["vLLM 서버 상태 확인", "VLLM_BASE_URL 환경변수 확인"],
+                tokensUsed=0,
+            )
+            
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "Internal server error", "code": "INTERNAL_ERROR", "detail": str(e)},
+        )
+
+
+def _generate_mock_debug_response(
+    error_message: str | None,
+    stack_trace: str | None,
+    file_path: str | None,
+    file_content: str | None,
+    description: str | None,
+) -> tuple:
+    """개발 모드용 Mock 디버그 응답 생성"""
+    
+    # 에러 유형 분석
+    error_lower = (error_message or "").lower() + (stack_trace or "").lower()
+    
+    if "typeerror" in error_lower or "type" in error_lower:
+        diagnosis = "TypeError가 발생했습니다. 변수의 타입이 예상과 다릅니다."
+        root_cause = "함수에 잘못된 타입의 인자가 전달되었거나, None 값에 대해 메서드를 호출했습니다."
+        fixes = [BugFix(
+            filePath=file_path or "unknown.py",
+            lineNumber=1,
+            originalCode="result = data.process()",
+            fixedCode="result = data.process() if data is not None else None",
+            explanation="None 체크를 추가하여 TypeError 방지",
+        )]
+        tips = ["타입 힌트 사용", "None 체크 추가", "isinstance()로 타입 검증"]
+        
+    elif "importerror" in error_lower or "modulenotfound" in error_lower:
+        diagnosis = "모듈 임포트 오류입니다. 필요한 패키지가 설치되지 않았거나 경로가 잘못되었습니다."
+        root_cause = "패키지가 설치되지 않았거나, 가상환경이 활성화되지 않았습니다."
+        fixes = [BugFix(
+            filePath="requirements.txt",
+            lineNumber=None,
+            originalCode="",
+            fixedCode="missing_package>=1.0.0",
+            explanation="필요한 패키지를 requirements.txt에 추가",
+        )]
+        tips = ["pip install 실행", "가상환경 확인", "PYTHONPATH 확인"]
+        
+    elif "syntaxerror" in error_lower:
+        diagnosis = "문법 오류입니다. 코드에 구문 오류가 있습니다."
+        root_cause = "괄호, 콜론, 들여쓰기 등 Python 문법 규칙 위반"
+        fixes = [BugFix(
+            filePath=file_path or "unknown.py",
+            lineNumber=1,
+            originalCode="def func(",
+            fixedCode="def func():",
+            explanation="함수 정의 문법 수정",
+        )]
+        tips = ["IDE의 린터 활성화", "코드 포맷터 사용", "괄호 짝 확인"]
+        
+    else:
+        diagnosis = f"""## 디버그 분석 (개발 모드)
+
+**에러**: {error_message or '없음'}
+
+**설명**: {description or '없음'}
+
+{'**스택 트레이스**:' + chr(10) + '```' + chr(10) + stack_trace[:500] + chr(10) + '```' if stack_trace else ''}
+
+이 분석은 개발 모드에서 생성된 Mock 응답입니다.
+실제 AI 분석을 위해 vLLM 서버를 연결해주세요."""
+        root_cause = "개발 모드에서는 정확한 원인 분석이 제한됩니다."
+        fixes = []
+        tips = ["vLLM 서버 연결 후 재시도", "에러 로그 자세히 확인", "관련 코드 검토"]
+    
+    return diagnosis, root_cause, fixes, tips
+
+
+# ============================================================
+# AI Mode Status
+# ============================================================
+
+@router.get(
+    "/modes",
+    summary="사용 가능한 AI 모드 목록",
+    description="현재 지원하는 AI 모드 목록과 설명을 반환합니다.",
+)
+async def get_available_modes():
+    """사용 가능한 AI 모드 목록 반환"""
+    return {
+        "modes": [
+            {
+                "id": "ask",
+                "name": "Ask",
+                "description": "코드에 대해 질문하고 답변을 받습니다.",
+                "icon": "💬",
+            },
+            {
+                "id": "agent",
+                "name": "Agent",
+                "description": "자동으로 코드를 분석하고 변경 사항을 제안합니다.",
+                "icon": "🤖",
+            },
+            {
+                "id": "plan",
+                "name": "Plan",
+                "description": "목표를 분석하고 단계별 실행 계획을 생성합니다.",
+                "icon": "📋",
+            },
+            {
+                "id": "debug",
+                "name": "Debug",
+                "description": "에러를 분석하고 버그 수정 방안을 제시합니다.",
+                "icon": "🐛",
+            },
+        ],
+        "current": "ask",  # 기본 모드
+    }

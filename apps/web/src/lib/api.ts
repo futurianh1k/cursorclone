@@ -216,6 +216,140 @@ export async function rewriteCode(request: AIRewriteRequest): Promise<AIRewriteR
 }
 
 // ============================================================
+// AI Modes: Plan, Agent, Debug
+// ============================================================
+
+// --- Plan Mode ---
+export interface TaskStep {
+  stepNumber: number;
+  description: string;
+  status: string;
+  filePath?: string;
+}
+
+export interface AIPlanRequest {
+  workspaceId: string;
+  goal: string;
+  context?: string;
+  filePaths?: string[];
+}
+
+export interface AIPlanResponse {
+  summary: string;
+  steps: TaskStep[];
+  estimatedChanges: number;
+  tokensUsed: number;
+}
+
+export async function createPlan(request: AIPlanRequest): Promise<AIPlanResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/ai/plan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to create plan: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+// --- Agent Mode ---
+export interface FileChange {
+  filePath: string;
+  action: "create" | "modify" | "delete";
+  diff?: string;
+  description: string;
+}
+
+export interface AIAgentRequest {
+  workspaceId: string;
+  instruction: string;
+  filePaths?: string[];
+  autoApply?: boolean;
+}
+
+export interface AIAgentResponse {
+  summary: string;
+  changes: FileChange[];
+  applied: boolean;
+  tokensUsed: number;
+}
+
+export async function runAgent(request: AIAgentRequest): Promise<AIAgentResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/ai/agent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to run agent: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+// --- Debug Mode ---
+export interface BugFix {
+  filePath: string;
+  lineNumber?: number;
+  originalCode: string;
+  fixedCode: string;
+  explanation: string;
+}
+
+export interface AIDebugRequest {
+  workspaceId: string;
+  errorMessage?: string;
+  stackTrace?: string;
+  filePath?: string;
+  fileContent?: string;
+  description?: string;
+}
+
+export interface AIDebugResponse {
+  diagnosis: string;
+  rootCause: string;
+  fixes: BugFix[];
+  preventionTips?: string[];
+  tokensUsed: number;
+}
+
+export async function debugCode(request: AIDebugRequest): Promise<AIDebugResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/ai/debug`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to debug: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+// --- Get Available Modes ---
+export interface AIMode {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+}
+
+export interface AIModesResponse {
+  modes: AIMode[];
+  current: string;
+}
+
+export async function getAIModes(): Promise<AIModesResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/ai/modes`);
+  if (!response.ok) {
+    throw new Error(`Failed to get AI modes: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+// ============================================================
 // Patch
 // ============================================================
 

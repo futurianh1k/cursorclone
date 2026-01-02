@@ -269,6 +269,118 @@ class AIChatResponse(BaseModel):
         populate_by_name = True
 
 
+# ============================================================
+# AI Modes (Agent, Plan, Ask, Debug)
+# ============================================================
+
+class AIMode(str, Enum):
+    """AI 작동 모드"""
+    ASK = "ask"          # 질문/답변 모드
+    AGENT = "agent"      # 자동 코드 작성/수정 모드
+    PLAN = "plan"        # 작업 계획 수립 모드
+    DEBUG = "debug"      # 버그 분석/수정 모드
+
+
+class TaskStep(BaseModel):
+    """작업 단계"""
+    step_number: int = Field(..., alias="stepNumber")
+    description: str
+    status: str = Field(default="pending", pattern="^(pending|in_progress|completed|failed)$")
+    file_path: Optional[str] = Field(default=None, alias="filePath")
+    
+    class Config:
+        populate_by_name = True
+
+
+class AIPlanRequest(BaseModel):
+    """AI Plan 모드 요청"""
+    workspace_id: str = Field(..., alias="workspaceId")
+    goal: str = Field(..., min_length=1, description="달성할 목표")
+    context: Optional[str] = Field(default=None, description="추가 컨텍스트")
+    file_paths: Optional[List[str]] = Field(default=None, alias="filePaths", description="관련 파일 경로들")
+    
+    class Config:
+        populate_by_name = True
+
+
+class AIPlanResponse(BaseModel):
+    """AI Plan 모드 응답"""
+    summary: str = Field(..., description="계획 요약")
+    steps: List[TaskStep] = Field(..., description="실행 단계들")
+    estimated_changes: int = Field(default=0, alias="estimatedChanges", description="예상 변경 파일 수")
+    tokens_used: int = Field(default=0, alias="tokensUsed")
+    
+    class Config:
+        populate_by_name = True
+
+
+class AIAgentRequest(BaseModel):
+    """AI Agent 모드 요청"""
+    workspace_id: str = Field(..., alias="workspaceId")
+    instruction: str = Field(..., min_length=1, description="수행할 작업 지시")
+    file_paths: Optional[List[str]] = Field(default=None, alias="filePaths", description="작업 대상 파일들")
+    auto_apply: bool = Field(default=False, alias="autoApply", description="자동 적용 여부")
+    
+    class Config:
+        populate_by_name = True
+
+
+class FileChange(BaseModel):
+    """파일 변경 내역"""
+    file_path: str = Field(..., alias="filePath")
+    action: str = Field(..., pattern="^(create|modify|delete)$")
+    diff: Optional[str] = None
+    description: str
+
+
+class AIAgentResponse(BaseModel):
+    """AI Agent 모드 응답"""
+    summary: str = Field(..., description="작업 요약")
+    changes: List[FileChange] = Field(..., description="파일 변경 내역")
+    applied: bool = Field(default=False, description="적용 여부")
+    tokens_used: int = Field(default=0, alias="tokensUsed")
+    
+    class Config:
+        populate_by_name = True
+
+
+class AIDebugRequest(BaseModel):
+    """AI Debug 모드 요청"""
+    workspace_id: str = Field(..., alias="workspaceId")
+    error_message: Optional[str] = Field(default=None, alias="errorMessage", description="에러 메시지")
+    stack_trace: Optional[str] = Field(default=None, alias="stackTrace", description="스택 트레이스")
+    file_path: Optional[str] = Field(default=None, alias="filePath", description="에러 발생 파일")
+    file_content: Optional[str] = Field(default=None, alias="fileContent", description="파일 내용")
+    description: Optional[str] = Field(default=None, description="문제 설명")
+    
+    class Config:
+        populate_by_name = True
+
+
+class BugFix(BaseModel):
+    """버그 수정 제안"""
+    file_path: str = Field(..., alias="filePath")
+    line_number: Optional[int] = Field(default=None, alias="lineNumber")
+    original_code: str = Field(..., alias="originalCode")
+    fixed_code: str = Field(..., alias="fixedCode")
+    explanation: str
+    
+    class Config:
+        populate_by_name = True
+
+
+class AIDebugResponse(BaseModel):
+    """AI Debug 모드 응답"""
+    diagnosis: str = Field(..., description="문제 진단")
+    root_cause: str = Field(..., alias="rootCause", description="근본 원인")
+    fixes: List[BugFix] = Field(..., description="수정 제안들")
+    prevention_tips: Optional[List[str]] = Field(default=None, alias="preventionTips", description="예방 팁")
+    tokens_used: int = Field(default=0, alias="tokensUsed")
+    
+    class Config:
+        populate_by_name = True
+
+
 class AIRewriteRequest(BaseModel):
     """AI 코드 리라이트 요청"""
     workspace_id: str = Field(..., alias="workspaceId")
