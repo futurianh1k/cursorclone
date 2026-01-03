@@ -9,6 +9,7 @@
  */
 
 import DOMPurify from 'dompurify';
+import React from 'react';
 import type { Config } from 'dompurify';
 
 // ============================================================
@@ -202,7 +203,6 @@ export function useSanitizedInput(initialValue: string = '') {
   };
 }
 
-import React from 'react';
 
 /**
  * 안전한 HTML 렌더링 컴포넌트
@@ -217,7 +217,7 @@ export function SafeHtml({
 }: {
   html: string;
   className?: string;
-  as?: keyof JSX.IntrinsicElements;
+  as?: keyof React.JSX.IntrinsicElements;
 }) {
   const clean = React.useMemo(() => sanitizeHtml(html), [html]);
   
