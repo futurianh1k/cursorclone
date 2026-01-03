@@ -1,0 +1,120 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: cursor-poc
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+      - name: api
+        image: ghcr.io/USERNAME/REPO/api:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: api-secret
+              key: database-url
+        - name: REDIS_URL
+          value: redis://redis:6379/0
+        - name: REDIS_POOL_SIZE
+          value: "10"
+        - name: JWT_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: api-secret
+              key: jwt-secret-key
+        - name: MASTER_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: api-secret
+              key: master-encryption-key
+        - name: CORS_ALLOWED_ORIGINS
+          value: "http://localhost:3000,https://yourdomain.com"
+        - name: VLLM_BASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: api-config
+              key: vllm-base-url
+        - name: VLLM_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: api-secret
+              key: vllm-api-key
+        - name: LOG_LEVEL
+          value: "INFO"
+        volumeMounts:
+        - name: workspaces
+          mountPath: /workspaces
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 40
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      volumes:
+      - name: workspaces
+        persistentVolumeClaim:
+          claimName: workspaces-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: cursor-poc
+spec:
+  selector:
+    app: api
+  ports:
+  - port: 80
+    targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-hpa
+  namespace: cursor-poc
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80

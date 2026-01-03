@@ -1,0 +1,58 @@
+# vLLM 서비스 추가 설정
+# 사용법: docker compose -f docker-compose.yml -f docker-compose.vllm.yml up -d
+#
+# 요구사항:
+# - NVIDIA GPU 필요 (CUDA 12.0+)
+# - nvidia-container-toolkit 설치 필요
+# - 최소 16GB+ GPU 메모리 권장 (모델에 따라 다름)
+
+services:
+  # vLLM 서버 (GPU 필요)
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: cursor-poc-vllm
+    runtime: nvidia  # nvidia-container-runtime 필요
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}  # 일부 모델은 HuggingFace 토큰 필요
+    command: >
+      --model ${VLLM_MODEL:-Qwen/Qwen2.5-Coder-7B-Instruct}
+      --host 0.0.0.0
+      --port 8000
+      --max-model-len ${VLLM_MAX_MODEL_LEN:-8192}
+      --gpu-memory-utilization ${VLLM_GPU_MEMORY:-0.9}
+      --trust-remote-code
+    ports:
+      - "${VLLM_PORT:-8001}:8000"
+    volumes:
+      - vllm_cache:/root/.cache/huggingface  # 모델 캐시
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s  # 모델 로딩 시간
+    networks:
+      - cursor-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # API 서버 - vLLM 연결 설정 오버라이드
+  api:
+    environment:
+      VLLM_BASE_URL: http://vllm:8000/v1
+      DEV_MODE: "false"
+    depends_on:
+      vllm:
+        condition: service_healthy
+
+volumes:
+  vllm_cache:
+
+# GPU 없는 환경에서 CPU 모드로 실행하려면:
+# docker-compose.vllm-cpu.yml 참조

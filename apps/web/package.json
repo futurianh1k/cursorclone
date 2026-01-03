@@ -6,7 +6,8 @@
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint || true",
-    "format": "prettier -w . || true"
+    "format": "prettier -w . || true",
+    "test": "echo 'No tests specified'"
   },
   "dependencies": {
     "@monaco-editor/react": "4.6.0",

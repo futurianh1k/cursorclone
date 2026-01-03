@@ -1,0 +1,39 @@
+# API 서버 필수 의존성
+# Python 3.11+ 필요
+
+# 웹 프레임워크
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+
+# 데이터 검증 및 직렬화
+pydantic>=2.6.0
+
+# 파일 업로드 처리
+python-multipart>=0.0.9
+
+# 템플릿 엔진 (프롬프트 템플릿용)
+jinja2>=3.1.0
+
+# HTTP 클라이언트 (vLLM 통신)
+httpx>=0.27.0
+
+# 환경변수 관리
+python-dotenv>=0.13.0
+
+# 데이터베이스 (비동기)
+sqlalchemy>=2.0.0
+asyncpg>=0.29.0
+
+# 캐시
+redis>=5.0.0
+
+# 암호화 및 인증
+cryptography>=41.0.0
+bcrypt>=4.0.0
+python-jose[cryptography]>=3.3.0
+
+# Docker/Container 관리
+docker>=7.0.0
+
+# WebSocket 지원
+websockets>=12.0

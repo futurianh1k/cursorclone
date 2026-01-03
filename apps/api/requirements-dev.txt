@@ -1,0 +1,12 @@
+# 개발 및 테스트용 의존성
+# requirements.txt의 모든 의존성 포함
+
+-r requirements.txt
+
+# 테스트 프레임워크
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+
+# 코드 품질 도구 (선택사항)
+# ruff>=0.1.0
+# black>=23.0.0

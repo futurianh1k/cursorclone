@@ -112,7 +112,8 @@ class DefaultContextBuilder(ContextBuilder):
         messages = []
         
         # 1. 시스템 프롬프트
-        system_prompt = self.templates.get_system_prompt(action.value)
+        action_str = action.value if hasattr(action, 'value') else str(action)
+        system_prompt = self.templates.get_system_prompt(action_str)
         messages.append(PromptMessage(
             role="system",
             content=system_prompt,
@@ -195,8 +196,9 @@ class DefaultContextBuilder(ContextBuilder):
         total_chars = sum(len(msg.content) for msg in messages)
         tokens_estimate = total_chars // 4
         
+        action_str = request.action.value if hasattr(request.action, 'value') else str(request.action)
         return {
-            "action": request.action.value,
+            "action": action_str,
             "source_count": len(request.sources),
             "source_paths": [s.path for s in request.sources],
             "total_tokens_estimate": tokens_estimate,
