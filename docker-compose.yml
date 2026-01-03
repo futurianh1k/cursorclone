@@ -50,7 +50,8 @@ services:
       # Fernet 키 형식: 32 bytes URL-safe base64 encoded
       # 생성: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
       MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:-jaBiuVcMi6kjiFSmvctoICAGe_iK_pJ8Swi0nljSFXw=}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://web:3000,*}
+      # ⚠️ 프로덕션에서는 명시적 도메인만 허용 (절대 * 사용 금지)
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://web:3000}
       # vLLM 서버 연동 (Docker 네트워크 내부)
       VLLM_BASE_URL: ${VLLM_BASE_URL:-http://cursor-poc-vllm:8000/v1}
       VLLM_MODEL: ${VLLM_MODEL:-Qwen/Qwen2.5-Coder-7B-Instruct}

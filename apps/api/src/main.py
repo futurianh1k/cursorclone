@@ -10,6 +10,8 @@ Task B: API 명세 반영
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 import os
 import logging
 from pathlib import Path
@@ -74,22 +76,43 @@ app = FastAPI(
 )
 
 # ============================================================
+# 미들웨어 설정
+# ============================================================
+
+# Rate Limiter 설정
+from .middleware.rate_limiter import limiter
+from .middleware.security_headers import SecurityHeadersMiddleware
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# 보안 헤더 미들웨어
+app.add_middleware(SecurityHeadersMiddleware)
+
+# ============================================================
 # CORS 설정
 # ============================================================
 
 # 환경변수에서 허용 origin 목록 가져오기
-# 온프레미스 환경에서는 내부 도메인만 허용
+# ⚠️ 온프레미스 환경에서는 내부 도메인만 허용 (절대 * 사용 금지)
 ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
     "http://localhost:3000,http://127.0.0.1:3000"
 ).split(",")
+
+# "*" 가 포함되어 있으면 경고 로그
+if "*" in ALLOWED_ORIGINS:
+    logger.warning(
+        "⚠️ CORS_ALLOWED_ORIGINS에 '*'가 포함되어 있습니다. "
+        "프로덕션 환경에서는 명시적 도메인만 허용해야 합니다."
+    )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Request-ID"],
 )
 
 # ============================================================

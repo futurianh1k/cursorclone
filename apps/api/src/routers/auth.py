@@ -25,6 +25,8 @@ from pydantic import BaseModel, Field
 import secrets
 import logging
 
+from ..middleware.rate_limiter import limiter
+
 from ..models import (
     SignUpRequest,
     LoginRequest,
@@ -218,6 +220,7 @@ async def signup(
     summary="로그인",
     description="사용자 로그인 (Rate Limiting, 2FA 지원)",
 )
+@limiter.limit("5/minute")  # slowapi: 분당 5회 제한
 async def login(
     request: LoginWith2FARequest,
     response: Response,
