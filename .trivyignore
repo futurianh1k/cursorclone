@@ -1,0 +1,7 @@
+# Trivy ignore file
+# https://aquasecurity.github.io/trivy/latest/docs/configuration/filtering/
+
+# 알려진 취약점 중 무시할 것들 (사유와 함께 기록)
+
+# 예시: 특정 CVE 무시 (해당 기능 사용 안 함)
+# CVE-2021-XXXXX

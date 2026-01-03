@@ -7,6 +7,7 @@ uvicorn[standard]>=0.27.0
 
 # 데이터 검증 및 직렬화
 pydantic>=2.6.0
+pydantic-settings>=2.0.0  # 환경변수 설정 관리
 
 # 파일 업로드 처리
 python-multipart>=0.0.9
@@ -23,9 +24,15 @@ python-dotenv>=0.13.0
 # 데이터베이스 (비동기)
 sqlalchemy>=2.0.0
 asyncpg>=0.29.0
+psycopg2-binary>=2.9.0  # Alembic 마이그레이션용 (동기 드라이버)
+alembic>=1.13.0  # DB 마이그레이션
 
 # 캐시
 redis>=5.0.0
+slowapi>=0.1.9
+limits>=3.6.0
+prometheus-fastapi-instrumentator>=6.1.0
+hvac>=2.1.0
 
 # 암호화 및 인증
 cryptography>=41.0.0

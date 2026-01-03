@@ -45,32 +45,66 @@ logger = logging.getLogger(__name__)
     summary="워크스페이스 생성",
     description="새로운 워크스페이스를 생성합니다.",
 )
-async def create_workspace(request: CreateWorkspaceRequest):
+async def create_workspace(
+    request: CreateWorkspaceRequest,
+    current_user: UserModel = Depends(require_permission(Permission.WORKSPACE_CREATE)),
+    db: AsyncSession = Depends(get_db),
+):
     """
     새 워크스페이스를 생성합니다.
     
     빈 워크스페이스를 생성합니다.
+    
+    인증 필수: JWT 토큰, 권한: workspace:create
     """
     workspace_id = f"ws_{request.name}"
     workspace_root = get_workspace_root(workspace_id)
     
-    # 워크스페이스 존재 여부 확인
+    # 워크스페이스 존재 여부 확인 (디렉토리)
     if workspace_exists(workspace_root):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"error": "Workspace already exists", "code": "WS_ALREADY_EXISTS"},
         )
     
+    # DB에서도 중복 확인
+    existing = await db.execute(
+        select(WorkspaceModel).where(WorkspaceModel.workspace_id == workspace_id)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "Workspace already exists in database", "code": "WS_ALREADY_EXISTS"},
+        )
+    
     # 워크스페이스 디렉토리 생성
     try:
         create_workspace_directory(workspace_id, workspace_root)
     except OSError as e:
+        logger.error(f"Failed to create workspace directory: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error": "Failed to create workspace", "code": "WS_CREATE_FAILED"},
         )
     
-    # TODO: DB에 메타데이터 저장
+    # DB에 메타데이터 저장
+    try:
+        workspace_model = WorkspaceModel(
+            workspace_id=workspace_id,
+            name=request.name,
+            owner_id=current_user.user_id,
+            org_id=current_user.org_id,
+            root_path=str(workspace_root),
+            status="stopped",
+        )
+        db.add(workspace_model)
+        await db.commit()
+        await db.refresh(workspace_model)
+        logger.info(f"Workspace created: {workspace_id} by {current_user.user_id}")
+    except Exception as e:
+        logger.error(f"Failed to save workspace to DB: {e}")
+        # DB 저장 실패해도 디렉토리는 생성됨 - 로그만 남기고 계속 진행
+        await db.rollback()
     
     return WorkspaceResponse(
         workspaceId=workspace_id,
@@ -88,31 +122,69 @@ async def create_workspace(request: CreateWorkspaceRequest):
     summary="워크스페이스 목록 조회",
     description="현재 사용자가 접근 가능한 워크스페이스 목록을 반환합니다.",
 )
-async def list_workspaces():
+async def list_workspaces(
+    current_user: UserModel = Depends(require_permission(Permission.WORKSPACE_READ)),
+    db: AsyncSession = Depends(get_db),
+    page: int = Query(default=1, ge=1, description="페이지 번호"),
+    limit: int = Query(default=20, ge=1, le=100, description="페이지당 항목 수"),
+    status_filter: Optional[str] = Query(default=None, description="상태 필터 (running, stopped)"),
+):
     """
     사용자가 접근 가능한 워크스페이스 목록을 반환합니다.
     
-    /workspaces 디렉토리에서 조회합니다.
+    - 관리자: 모든 워크스페이스 조회 가능
+    - 일반 사용자: 자신이 소유한 워크스페이스만 조회
+    
+    인증 필수: JWT 토큰, 권한: workspace:read
+    페이지네이션 지원: page, limit 파라미터
     """
+    from ..services.rbac_service import rbac_service
+    
     workspaces: List[WorkspaceResponse] = []
+    offset = (page - 1) * limit
     
-    # /workspaces 디렉토리에서 조회
-    workspaces_dir = Path("/workspaces")
-    if workspaces_dir.exists():
-        for entry in workspaces_dir.iterdir():
-            if entry.is_dir() and entry.name.startswith("ws_"):
-                workspace_id = entry.name
-                workspace_name = workspace_id.replace("ws_", "")
-                workspaces.append(
-                    WorkspaceResponse(
-                        workspaceId=workspace_id,
-                        name=workspace_name,
-                        rootPath=str(entry),
+    # 기본 쿼리
+    query = select(WorkspaceModel)
+    
+    # 관리자가 아니면 자신의 워크스페이스만
+    if not rbac_service.is_admin(current_user.role or "viewer"):
+        query = query.where(WorkspaceModel.owner_id == current_user.user_id)
+    
+    # 상태 필터
+    if status_filter:
+        query = query.where(WorkspaceModel.status == status_filter)
+    
+    # 페이지네이션 및 정렬
+    query = query.order_by(WorkspaceModel.created_at.desc()).offset(offset).limit(limit)
+    
+    # DB에서 조회
+    result = await db.execute(query)
+    db_workspaces = result.scalars().all()
+    
+    for ws in db_workspaces:
+        workspaces.append(
+            WorkspaceResponse(
+                workspaceId=ws.workspace_id,
+                name=ws.name,
+                rootPath=ws.root_path,
+            )
+        )
+    
+    # DB에 없는 경우 파일시스템에서 조회 (하위 호환성)
+    if not workspaces:
+        workspaces_dir = Path("/workspaces")
+        if workspaces_dir.exists():
+            for entry in list(workspaces_dir.iterdir())[offset:offset+limit]:
+                if entry.is_dir() and entry.name.startswith("ws_"):
+                    workspace_id = entry.name
+                    workspace_name = workspace_id.replace("ws_", "")
+                    workspaces.append(
+                        WorkspaceResponse(
+                            workspaceId=workspace_id,
+                            name=workspace_name,
+                            rootPath=str(entry),
+                        )
                     )
-                )
-    
-    # TODO: DB에서 사용자 권한에 따른 목록 필터링
-    # TODO: 페이지네이션 지원
     
     return workspaces
 
@@ -130,11 +202,17 @@ async def list_workspaces():
     summary="GitHub 저장소 클론",
     description="GitHub 저장소를 클론하여 새 워크스페이스를 생성합니다.",
 )
-async def clone_github_repository(request: CloneGitHubRequest):
+async def clone_github_repository(
+    request: CloneGitHubRequest,
+    current_user: UserModel = Depends(require_permission(Permission.WORKSPACE_CREATE)),
+    db: AsyncSession = Depends(get_db),
+):
     """
     GitHub 저장소를 클론하여 새 워크스페이스를 생성합니다.
     
     저장소 URL에서 자동으로 이름을 추출하거나, name을 지정할 수 있습니다.
+    
+    인증 필수: JWT 토큰, 권한: workspace:create
     """
     # 저장소 이름 추출
     if request.name:
@@ -220,7 +298,23 @@ async def clone_github_repository(request: CloneGitHubRequest):
             detail={"error": "Failed to clone repository", "code": "GIT_CLONE_FAILED", "detail": str(e)},
         )
     
-    # TODO: DB에 메타데이터 저장
+    # DB에 메타데이터 저장
+    try:
+        workspace_model = WorkspaceModel(
+            workspace_id=workspace_id,
+            name=workspace_name,
+            owner_id=current_user.user_id,
+            org_id=current_user.org_id,
+            root_path=str(workspace_root),
+            status="stopped",
+        )
+        db.add(workspace_model)
+        await db.commit()
+        await db.refresh(workspace_model)
+        logger.info(f"Workspace cloned: {workspace_id} from {request.repository_url} by {current_user.user_id}")
+    except Exception as e:
+        logger.error(f"Failed to save workspace to DB: {e}")
+        await db.rollback()
     
     return WorkspaceResponse(
         workspaceId=workspace_id,

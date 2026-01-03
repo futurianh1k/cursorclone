@@ -33,8 +33,9 @@ export default function LoginPage() {
 
       // 대시보드로 이동
       router.push("/dashboard");
-    } catch (err: any) {
-      setError(err.message || `${mode === "login" ? "로그인" : "회원가입"}에 실패했습니다`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : `${mode === "login" ? "로그인" : "회원가입"}에 실패했습니다`;
+      setError(message);
     } finally {
       setLoading(false);
     }

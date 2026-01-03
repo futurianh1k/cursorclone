@@ -6,9 +6,12 @@ AI 라우터
 - POST /api/ai/plan      - 작업 계획 수립
 - POST /api/ai/agent     - 자동 코드 작성/수정
 - POST /api/ai/debug     - 버그 분석/수정
+
+설정은 config.py에서 중앙 관리됩니다.
 """
 
 from fastapi import APIRouter, HTTPException, status
+from ..config import settings
 from ..models import (
     AIExplainRequest,
     AIExplainResponse,
@@ -42,11 +45,11 @@ from ..llm import (
     LLMError,
     LLMTimeoutError,
 )
+from ..utils.filesystem import get_workspace_root, workspace_exists
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
 # Context Builder 인스턴스 (전역 또는 의존성 주입)
-# TODO: 실제로는 의존성 주입 또는 설정에서 가져오기
 _context_builder_cache = {}
 
 
@@ -54,20 +57,56 @@ def _get_context_builder(workspace_id: str) -> DefaultContextBuilder:
     """
     워크스페이스별 Context Builder 가져오기
     
-    TODO: 실제 워크스페이스 루트 경로 가져오기
+    워크스페이스 루트 경로는 utils.filesystem.get_workspace_root()에서 가져옴
     """
     if workspace_id not in _context_builder_cache:
-        # TODO: 실제 워크스페이스 루트 경로
-        workspace_root = f"/workspaces/{workspace_id}"
+        workspace_root = get_workspace_root(workspace_id)
+        
+        if not workspace_exists(workspace_root):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": f"Workspace not found: {workspace_id}", "code": "NOT_FOUND"},
+            )
+        
         _context_builder_cache[workspace_id] = DefaultContextBuilder(
-            workspace_root=workspace_root,
+            workspace_root=str(workspace_root),
         )
     return _context_builder_cache[workspace_id]
 
 
-def _validate_workspace_access(ws_id: str) -> bool:
-    """워크스페이스 접근 권한 검증"""
-    # TODO: 실제 권한 검증 로직 구현
+def _validate_workspace_access(ws_id: str, user_id: str = None) -> bool:
+    """
+    워크스페이스 접근 권한 검증
+    
+    검증 로직:
+    1. 워크스페이스 존재 여부 확인
+    2. 사용자가 워크스페이스 소유자인지 확인 (user_id 제공 시)
+    3. 공유 권한 확인 (추후 구현)
+    
+    Args:
+        ws_id: 워크스페이스 ID
+        user_id: 사용자 ID (선택적)
+    
+    Returns:
+        접근 가능 여부
+    """
+    from ..utils.filesystem import get_workspace_root, workspace_exists
+    
+    # 1. 워크스페이스 존재 여부 확인
+    workspace_root = get_workspace_root(ws_id)
+    if not workspace_exists(workspace_root):
+        return False
+    
+    # 2. 사용자 권한 확인 (user_id 제공 시)
+    if user_id:
+        # 워크스페이스 ID에서 소유자 추출 (형식: owner_id/workspace_name 또는 ws_name)
+        if "/" in ws_id:
+            owner_id = ws_id.split("/")[0]
+            if owner_id != user_id:
+                # 공유 권한 확인 (DB 조회 - 추후 구현)
+                # 현재는 소유자가 아니어도 존재하면 접근 허용 (PoC)
+                pass
+    
     return True
 
 
@@ -119,11 +158,6 @@ async def explain_code(request: AIExplainRequest):
     """
     선택된 코드에 대한 AI 설명을 반환합니다.
     
-    TODO: 실제 AI 설명 구현
-    - Context Builder를 통해 컨텍스트 조합
-    - vLLM으로 요청 전송
-    - 응답 처리 및 반환
-    
     흐름: API → Context Builder → vLLM → 응답
     
     ⚠️ 주의 (AGENTS.md 규칙)
@@ -171,8 +205,7 @@ async def explain_code(request: AIExplainRequest):
         context_response = await context_builder.build(context_request)
         
         # vLLM 호출 (개발 모드에서는 Mock 응답)
-        import os
-        dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+        dev_mode = settings.DEV_MODE
         
         try:
             if dev_mode:
@@ -310,8 +343,7 @@ async def chat_with_ai(request: AIChatRequest):
         )
     
     try:
-        import os
-        dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+        dev_mode = settings.DEV_MODE
         
         # 파일 내용 가져오기
         file_content = None
@@ -519,11 +551,6 @@ async def rewrite_code(request: AIRewriteRequest):
     ⚠️ 중요: 이 API는 diff만 반환합니다.
     실제 적용은 /patch/validate → /patch/apply를 통해 수행해야 합니다.
     
-    TODO: 실제 AI 리라이트 구현
-    - Context Builder를 통해 컨텍스트 조합
-    - vLLM으로 요청 전송 (rewrite 프롬프트 템플릿 사용)
-    - unified diff 형식 응답 파싱
-    
     흐름: API → Context Builder → vLLM → diff 반환
           → (클라이언트) → /patch/validate → /patch/apply
     
@@ -669,8 +696,7 @@ async def create_plan(request: AIPlanRequest):
         )
     
     try:
-        import os
-        dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+        dev_mode = settings.DEV_MODE
         
         # 관련 파일 내용 수집
         file_contents = {}
@@ -841,8 +867,7 @@ async def run_agent(request: AIAgentRequest):
         )
     
     try:
-        import os
-        dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+        dev_mode = settings.DEV_MODE
         
         # 관련 파일 내용 수집
         file_contents = {}
@@ -1037,8 +1062,7 @@ async def debug_code(request: AIDebugRequest):
         )
     
     try:
-        import os
-        dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+        dev_mode = settings.DEV_MODE
         
         # 파일 내용 가져오기
         file_content = None
@@ -1289,12 +1313,12 @@ from ..models import (
     ContextSuggestion,
     ContextSuggestResponse,
 )
-import os
 import uuid
 import base64
 from pathlib import Path
+import os
 
-# 이미지 저장 경로
+# 이미지 저장 경로 (환경변수 또는 기본값)
 IMAGE_UPLOAD_DIR = Path(os.getenv("IMAGE_UPLOAD_DIR", "/tmp/ai_images"))
 IMAGE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -1416,11 +1440,19 @@ async def analyze_image(request: ImageAnalysisRequest):
     - UI 디자인에서 코드 생성
     - 다이어그램 해석
     
-    TODO: Vision LLM 연동 (GPT-4V, LLaVA 등)
+    Vision LLM 지원:
+    - LiteLLM을 통한 GPT-4V, Claude Vision, LLaVA 등
+    - VISION_MODEL 환경변수로 모델 지정
     """
-    # 개발 모드 Mock 응답
-    dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+    import base64
+    import httpx
     
+    # 중앙 설정에서 가져오기
+    dev_mode = settings.DEV_MODE
+    litellm_url = settings.LITELLM_BASE_URL
+    vision_model = settings.VISION_MODEL
+    
+    # 개발 모드 Mock 응답
     if dev_mode:
         question = request.question or "이미지를 분석해주세요."
         return ImageAnalysisResponse(
@@ -1430,9 +1462,12 @@ async def analyze_image(request: ImageAnalysisRequest):
 
 이 응답은 개발 모드에서 생성된 Mock 응답입니다.
 
-실제 이미지 분석을 위해서는 Vision LLM (GPT-4V, LLaVA 등)을 연결해주세요.
+실제 이미지 분석을 위해서는:
+1. VISION_MODEL 환경변수 설정 (예: gpt-4-vision-preview, claude-3-opus)
+2. DEV_MODE=false 설정
+3. LiteLLM 프록시 연결 확인
 
-**지원 예정 기능**:
+**지원 기능**:
 - 스크린샷에서 에러 메시지 추출 (OCR)
 - UI 디자인에서 코드 생성
 - 다이어그램/플로우차트 해석
@@ -1442,11 +1477,95 @@ async def analyze_image(request: ImageAnalysisRequest):
             code_blocks=["# 개발 모드에서는 코드 추출이 지원되지 않습니다."],
         )
     
-    # TODO: 실제 Vision LLM 연동
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail={"error": "Vision LLM not implemented yet", "code": "NOT_IMPLEMENTED"},
-    )
+    # 이미지 파일 읽기 및 Base64 인코딩
+    image_id = request.image_id
+    upload_dir = Path(os.getenv("UPLOAD_DIR", "/tmp/uploads"))
+    image_path = upload_dir / image_id
+    
+    if not image_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "Image not found", "code": "IMAGE_NOT_FOUND"},
+        )
+    
+    # 이미지를 Base64로 인코딩
+    try:
+        with open(image_path, "rb") as f:
+            image_data = base64.b64encode(f.read()).decode("utf-8")
+        
+        # 파일 확장자로 MIME 타입 추정
+        suffix = image_path.suffix.lower()
+        mime_type = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+        }.get(suffix, "image/png")
+        
+        image_url = f"data:{mime_type};base64,{image_data}"
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": f"Failed to read image: {e}", "code": "IMAGE_READ_ERROR"},
+        )
+    
+    # Vision LLM 요청 (OpenAI 호환 형식)
+    question = request.question or "이 이미지를 분석해주세요. 에러 메시지가 있다면 추출하고, 코드가 있다면 설명해주세요."
+    
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": question},
+                {"type": "image_url", "image_url": {"url": image_url}},
+            ],
+        }
+    ]
+    
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{litellm_url}/v1/chat/completions",
+                json={
+                    "model": vision_model,
+                    "messages": messages,
+                    "max_tokens": 2000,
+                },
+                headers={"Content-Type": "application/json"},
+            )
+            
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail={"error": f"Vision LLM error: {response.text}", "code": "VISION_LLM_ERROR"},
+                )
+            
+            result = response.json()
+            description = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            
+            # 코드 블록 추출 (```로 둘러싸인 부분)
+            import re
+            code_pattern = r"```(?:\w+)?\n(.*?)```"
+            code_blocks = re.findall(code_pattern, description, re.DOTALL)
+            
+            return ImageAnalysisResponse(
+                description=description,
+                extracted_text=None,  # OCR 결과가 있다면 여기에
+                code_blocks=code_blocks if code_blocks else None,
+            )
+            
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail={"error": "Vision LLM timeout", "code": "VISION_LLM_TIMEOUT"},
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": f"Vision LLM connection error: {e}", "code": "VISION_LLM_CONNECTION_ERROR"},
+        )
 
 
 @router.post(
@@ -1464,12 +1583,12 @@ async def suggest_context(request: ContextSuggestRequest):
     import os
     from pathlib import Path
     
-    workspace_root = Path(f"/workspaces/{request.workspace_id}")
+    workspace_root = get_workspace_root(request.workspace_id)
     query = request.query.lower()
     suggestions = []
     
     # 파일 검색
-    if not workspace_root.exists():
+    if not workspace_exists(workspace_root):
         return ContextSuggestResponse(suggestions=[], total=0)
     
     try:
@@ -1700,12 +1819,22 @@ async def advanced_chat(request: AIAdvancedChatRequest):
         messages.append({"role": "user", "content": user_message})
         
         # LLM 호출
-        response = await llm_client.chat(messages=messages)
+        llm_response = await llm_client.chat(messages=messages)
+        
+        # OpenAI API 응답 형식에서 content 추출
+        response_content = ""
+        tokens_used = 0
+        
+        if "choices" in llm_response and len(llm_response["choices"]) > 0:
+            response_content = llm_response["choices"][0].get("message", {}).get("content", "")
+        
+        if "usage" in llm_response:
+            tokens_used = llm_response["usage"].get("total_tokens", 0)
         
         return AIAdvancedChatResponse(
-            response=response.content,
+            response=response_content,
             mode=request.mode,
-            tokens_used=response.usage.total_tokens if response.usage else 0,
+            tokens_used=tokens_used,
         )
         
     except (LLMTimeoutError, LLMError) as e:

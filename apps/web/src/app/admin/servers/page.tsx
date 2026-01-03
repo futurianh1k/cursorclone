@@ -30,8 +30,9 @@ export default function ServersPage() {
     try {
       const result = await testServerConnection(serverId);
       alert(result.success ? "연결 성공!" : `연결 실패: ${result.message}`);
-    } catch (err: any) {
-      alert(`연결 테스트 실패: ${err.message}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "알 수 없는 오류";
+      alert(`연결 테스트 실패: ${message}`);
     } finally {
       setTesting(null);
     }

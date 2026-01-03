@@ -65,17 +65,24 @@ export default function FileTree({ workspaceId, onFileSelect }: FileTreeProps) {
     }
   };
 
+  /**
+   * 파일 트리 아이템 렌더링
+   */
   const renderTreeItem = (item: FileTreeItem, level: number = 0) => {
     const isExpanded = expanded.has(item.path);
     const hasChildren = item.children && item.children.length > 0;
+    const isDirectory = item.type === "directory";
 
     return (
-      <div key={item.path}>
+      <div key={item.path} role="treeitem" aria-expanded={isDirectory ? isExpanded : undefined}>
         <div
+          role={isDirectory ? "button" : "link"}
+          tabIndex={0}
+          aria-label={`${isDirectory ? (isExpanded ? "열린 폴더" : "폴더") : "파일"}: ${item.name}`}
           style={{
             padding: "4px 8px",
             paddingLeft: `${level * 16 + 8}px`,
-            cursor: item.type === "directory" ? "pointer" : "default",
+            cursor: isDirectory ? "pointer" : "default",
             display: "flex",
             alignItems: "center",
             gap: "4px",
@@ -89,21 +96,37 @@ export default function FileTree({ workspaceId, onFileSelect }: FileTreeProps) {
             e.currentTarget.style.backgroundColor = "transparent";
           }}
           onClick={() => {
-            if (item.type === "directory") {
+            if (isDirectory) {
               toggleExpand(item.path);
             } else {
               onFileSelect?.(item.path);
             }
           }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              if (isDirectory) {
+                toggleExpand(item.path);
+              } else {
+                onFileSelect?.(item.path);
+              }
+            }
+          }}
         >
-          {item.type === "directory" && (
-            <span style={{ fontSize: "12px" }}>{isExpanded ? "📂" : "📁"}</span>
+          {isDirectory && (
+            <span style={{ fontSize: "12px" }} aria-hidden="true">
+              {isExpanded ? "📂" : "📁"}
+            </span>
           )}
-          {item.type === "file" && <span style={{ fontSize: "12px" }}>📄</span>}
+          {!isDirectory && (
+            <span style={{ fontSize: "12px" }} aria-hidden="true">
+              📄
+            </span>
+          )}
           <span style={{ fontSize: "13px" }}>{item.name}</span>
         </div>
-        {item.type === "directory" && isExpanded && hasChildren && (
-          <div>
+        {isDirectory && isExpanded && hasChildren && (
+          <div role="group" aria-label={`${item.name} 폴더 내용`}>
             {item.children!.map((child) => renderTreeItem(child, level + 1))}
           </div>
         )}
@@ -113,18 +136,28 @@ export default function FileTree({ workspaceId, onFileSelect }: FileTreeProps) {
 
   if (loading) {
     return (
-      <div style={{ padding: "12px", fontSize: "12px", color: "#666" }}>
-        Loading...
+      <div
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+        style={{ padding: "12px", fontSize: "12px", color: "#666" }}
+      >
+        <span aria-label="파일 목록 로딩 중">Loading...</span>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div style={{ padding: "12px", fontSize: "12px", color: "#d32f2f" }}>
+      <div
+        role="alert"
+        aria-live="assertive"
+        style={{ padding: "12px", fontSize: "12px", color: "#d32f2f" }}
+      >
         Error: {error}
         <button
           onClick={loadFileTree}
+          aria-label="파일 트리 다시 불러오기"
           style={{ marginTop: "8px", padding: "4px 8px", fontSize: "12px" }}
         >
           Retry
@@ -134,12 +167,17 @@ export default function FileTree({ workspaceId, onFileSelect }: FileTreeProps) {
   }
 
   return (
-    <div style={{ overflowY: "auto", height: "100%", display: "flex", flexDirection: "column" }}>
+    <nav
+      role="tree"
+      aria-label="파일 탐색기"
+      style={{ overflowY: "auto", height: "100%", display: "flex", flexDirection: "column" }}
+    >
       {/* 새 파일 생성 버튼 */}
       <div style={{ padding: "8px", borderBottom: "1px solid #eee" }}>
         {!showNewFileInput ? (
           <button
             onClick={() => setShowNewFileInput(true)}
+            aria-label="새 파일 만들기"
             style={{
               width: "100%",
               padding: "6px 12px",
@@ -154,15 +192,20 @@ export default function FileTree({ workspaceId, onFileSelect }: FileTreeProps) {
               gap: "4px",
             }}
           >
-            <span>📄</span> New File
+            <span aria-hidden="true">📄</span> New File
           </button>
         ) : (
-          <div style={{ display: "flex", gap: "4px" }}>
+          <div role="form" aria-label="새 파일 생성 양식" style={{ display: "flex", gap: "4px" }}>
+            <label htmlFor="new-file-name" className="sr-only">
+              새 파일 이름
+            </label>
             <input
+              id="new-file-name"
               type="text"
               value={newFileName}
               onChange={(e) => setNewFileName(e.target.value)}
               placeholder="filename.py"
+              aria-placeholder="filename.py"
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleCreateFile();
                 if (e.key === "Escape") {
@@ -180,10 +223,13 @@ export default function FileTree({ workspaceId, onFileSelect }: FileTreeProps) {
                 outline: "none",
               }}
               disabled={creating}
+              aria-disabled={creating}
             />
             <button
               onClick={handleCreateFile}
               disabled={creating || !newFileName.trim()}
+              aria-label="파일 생성 확인"
+              aria-disabled={creating || !newFileName.trim()}
               style={{
                 padding: "4px 8px",
                 fontSize: "12px",
@@ -194,7 +240,7 @@ export default function FileTree({ workspaceId, onFileSelect }: FileTreeProps) {
                 cursor: creating ? "not-allowed" : "pointer",
               }}
             >
-              ✓
+              <span aria-hidden="true">✓</span>
             </button>
             <button
               onClick={() => {
@@ -202,6 +248,7 @@ export default function FileTree({ workspaceId, onFileSelect }: FileTreeProps) {
                 setNewFileName("");
               }}
               disabled={creating}
+              aria-label="파일 생성 취소"
               style={{
                 padding: "4px 8px",
                 fontSize: "12px",
@@ -212,14 +259,14 @@ export default function FileTree({ workspaceId, onFileSelect }: FileTreeProps) {
                 cursor: "pointer",
               }}
             >
-              ✕
+              <span aria-hidden="true">✕</span>
             </button>
           </div>
         )}
       </div>
       
       {/* 파일 트리 */}
-      <div style={{ flex: 1, overflowY: "auto" }}>
+      <div role="group" aria-label="파일 목록" style={{ flex: 1, overflowY: "auto" }}>
         {tree.length === 0 ? (
           <div style={{ padding: "12px", fontSize: "12px", color: "#666", textAlign: "center" }}>
             No files yet. Create a new file to get started.
@@ -228,6 +275,6 @@ export default function FileTree({ workspaceId, onFileSelect }: FileTreeProps) {
           tree.map((item) => renderTreeItem(item))
         )}
       </div>
-    </div>
+    </nav>
   );
 }

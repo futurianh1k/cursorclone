@@ -11,7 +11,7 @@ import {
   ContextItem,
   ContextType,
   ContextSuggestion,
-  AIMode,
+  AIModeType,
 } from "@/lib/api";
 
 interface AIChatProps {
@@ -25,11 +25,11 @@ interface Message {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
-  mode?: AIMode;
+  mode?: AIModeType;
   timestamp: Date;
 }
 
-const MODES: { id: AIMode; icon: string; label: string; shortLabel: string; color: string }[] = [
+const MODES: { id: AIModeType; icon: string; label: string; shortLabel: string; color: string }[] = [
   { id: "agent", icon: "⚡", label: "Agent", shortLabel: "Agent", color: "#7c3aed" },
   { id: "ask", icon: "💬", label: "Ask", shortLabel: "Ask", color: "#007acc" },
   { id: "plan", icon: "📋", label: "Plan", shortLabel: "Plan", color: "#059669" },
@@ -44,7 +44,7 @@ export default function AIChat({
 }: AIChatProps) {
   // 상태
   const [message, setMessage] = useState("");
-  const [mode, setMode] = useState<AIMode>("agent");
+  const [mode, setMode] = useState<AIModeType>("agent");
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

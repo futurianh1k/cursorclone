@@ -90,6 +90,20 @@ from .container import (
     GenerateSSHKeyResponse,
 )
 
+# IDE 모델 (code-server 프로비저닝)
+from .ide import (
+    IDEContainerStatus,
+    IDEType,
+    IDEContainerConfig,
+    CreateIDEContainerRequest,
+    IDEContainerResponse,
+    IDEContainerListResponse,
+    StartIDEContainerResponse,
+    StopIDEContainerResponse,
+    IDESessionInfo,
+    IDEHealthResponse,
+)
+
 __all__ = [
     # Common
     "ErrorResponse",
@@ -179,4 +193,15 @@ __all__ = [
     "SSHKeyResponse",
     "GenerateSSHKeyRequest",
     "GenerateSSHKeyResponse",
+    # IDE (code-server)
+    "IDEContainerStatus",
+    "IDEType",
+    "IDEContainerConfig",
+    "CreateIDEContainerRequest",
+    "IDEContainerResponse",
+    "IDEContainerListResponse",
+    "StartIDEContainerResponse",
+    "StopIDEContainerResponse",
+    "IDESessionInfo",
+    "IDEHealthResponse",
 ]

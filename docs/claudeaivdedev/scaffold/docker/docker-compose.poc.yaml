@@ -1,0 +1,172 @@
+# VDE Web IDE Platform - PoC Docker Compose
+# 용도: 로컬/PoC 환경에서 빠른 검증
+# 주의: 프로덕션 사용 금지
+
+version: '3.8'
+
+services:
+  # ===========================================
+  # Reverse Proxy (Nginx)
+  # ===========================================
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: vde-nginx
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - code-server
+      - keycloak
+    networks:
+      - vde-network
+    restart: unless-stopped
+
+  # ===========================================
+  # Authentication (Keycloak)
+  # ===========================================
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0
+    container_name: vde-keycloak
+    command: start-dev
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_PROXY: edge
+      KC_HOSTNAME_STRICT: false
+      KC_HTTP_ENABLED: true
+    ports:
+      - "8080:8080"
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+    networks:
+      - vde-network
+    restart: unless-stopped
+
+  # ===========================================
+  # Web IDE (code-server)
+  # ===========================================
+  code-server:
+    image: codercom/code-server:4.96.4
+    container_name: vde-code-server
+    environment:
+      PASSWORD: ${CODE_SERVER_PASSWORD:-password}
+      DOCKER_USER: ${USER:-coder}
+    volumes:
+      - code-server-data:/home/coder
+      - ./configs/code-server/settings.json:/home/coder/.local/share/code-server/User/settings.json:ro
+    networks:
+      - vde-network
+    restart: unless-stopped
+    # PoC에서는 단일 인스턴스, Pilot/Prod에서는 사용자별 생성
+
+  # ===========================================
+  # AI Autocomplete (Tabby)
+  # ===========================================
+  tabby:
+    image: tabbyml/tabby:0.21.0
+    container_name: vde-tabby
+    command: serve --model StarCoder2-3B --device cuda
+    environment:
+      TABBY_DISABLE_USAGE_COLLECTION: "1"
+    volumes:
+      - tabby-data:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    ports:
+      - "8081:8080"
+    networks:
+      - vde-network
+    restart: unless-stopped
+
+  # ===========================================
+  # LLM Gateway (LiteLLM Proxy)
+  # ===========================================
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: vde-litellm
+    command: --config /app/config.yaml
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-poc-key}
+    volumes:
+      - ./configs/litellm/config.yaml:/app/config.yaml:ro
+    ports:
+      - "4000:4000"
+    networks:
+      - vde-network
+    restart: unless-stopped
+
+  # ===========================================
+  # LLM Serving (vLLM) - GPU 필요
+  # ===========================================
+  vllm:
+    image: vllm/vllm-openai:v0.6.6
+    container_name: vde-vllm
+    command: >
+      --model /models/deepseek-coder-6.7b-instruct
+      --tensor-parallel-size 1
+      --max-model-len 8192
+    volumes:
+      - ./models:/models:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    ports:
+      - "8000:8000"
+    networks:
+      - vde-network
+    restart: unless-stopped
+
+  # ===========================================
+  # Git Server (Gitea) - PoC용 경량 Git
+  # ===========================================
+  gitea:
+    image: gitea/gitea:1.21
+    container_name: vde-gitea
+    environment:
+      USER_UID: 1000
+      USER_GID: 1000
+      GITEA__database__DB_TYPE: sqlite3
+    volumes:
+      - gitea-data:/data
+    ports:
+      - "3000:3000"
+      - "2222:22"
+    networks:
+      - vde-network
+    restart: unless-stopped
+
+  # ===========================================
+  # Package Mirror (Nexus) - Optional for PoC
+  # ===========================================
+  # nexus:
+  #   image: sonatype/nexus3:3.64.0
+  #   container_name: vde-nexus
+  #   volumes:
+  #     - nexus-data:/nexus-data
+  #   ports:
+  #     - "8082:8081"
+  #   networks:
+  #     - vde-network
+
+networks:
+  vde-network:
+    driver: bridge
+
+volumes:
+  keycloak-data:
+  code-server-data:
+  tabby-data:
+  gitea-data:
+  # nexus-data:

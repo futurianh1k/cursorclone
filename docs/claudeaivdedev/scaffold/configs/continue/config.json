@@ -1,0 +1,142 @@
+{
+  // ===========================================
+  // Continue Extension Configuration
+  // VDE Web IDE Platform
+  // ===========================================
+  // 이 파일은 ~/.continue/config.json에 위치해야 합니다
+
+  // -----------------------------------------
+  // 모델 설정
+  // -----------------------------------------
+  "models": [
+    {
+      "title": "Chat (Internal)",
+      "provider": "openai",
+      "model": "chat",
+      "apiBase": "http://litellm:4000/v1",
+      "apiKey": "not-needed"
+    }
+  ],
+
+  // -----------------------------------------
+  // Tab 자동완성 (Tabby 사용 시 비활성화)
+  // -----------------------------------------
+  "tabAutocompleteModel": null,
+  // Tabby를 대신 사용하므로 Continue의 자동완성은 비활성화
+  // Tabby 확장이 자동완성을 담당
+
+  // -----------------------------------------
+  // 슬래시 명령어
+  // -----------------------------------------
+  "slashCommands": [
+    {
+      "name": "edit",
+      "description": "Edit selected code"
+    },
+    {
+      "name": "comment",
+      "description": "Add comments to code"
+    },
+    {
+      "name": "share",
+      "description": "Export conversation to markdown"
+    },
+    {
+      "name": "cmd",
+      "description": "Generate shell command"
+    }
+  ],
+
+  // -----------------------------------------
+  // 커스텀 명령어
+  // -----------------------------------------
+  "customCommands": [
+    {
+      "name": "test",
+      "prompt": "Write unit tests for the selected code. Use the testing framework appropriate for the language (pytest for Python, Jest for JavaScript/TypeScript, JUnit for Java).",
+      "description": "Generate unit tests"
+    },
+    {
+      "name": "review",
+      "prompt": "Review the selected code for potential bugs, security issues, and improvements. Provide specific suggestions.",
+      "description": "Code review"
+    },
+    {
+      "name": "docs",
+      "prompt": "Generate documentation for the selected code including docstrings, JSDoc, or Javadoc as appropriate.",
+      "description": "Generate documentation"
+    },
+    {
+      "name": "refactor",
+      "prompt": "Suggest refactoring improvements for the selected code to improve readability, maintainability, and performance.",
+      "description": "Suggest refactoring"
+    },
+    {
+      "name": "explain",
+      "prompt": "Explain the selected code in detail. What does it do? How does it work?",
+      "description": "Explain code"
+    }
+  ],
+
+  // -----------------------------------------
+  // 컨텍스트 제공자
+  // -----------------------------------------
+  "contextProviders": [
+    {
+      "name": "code",
+      "params": {}
+    },
+    {
+      "name": "docs",
+      "params": {}
+    },
+    {
+      "name": "diff",
+      "params": {}
+    },
+    {
+      "name": "terminal",
+      "params": {}
+    },
+    {
+      "name": "problems",
+      "params": {}
+    },
+    {
+      "name": "folder",
+      "params": {}
+    },
+    {
+      "name": "codebase",
+      "params": {}
+    }
+  ],
+
+  // -----------------------------------------
+  // 임베딩 (Code RAG용 - 선택적)
+  // -----------------------------------------
+  // "embeddingsProvider": {
+  //   "provider": "openai",
+  //   "model": "text-embedding-3-small",
+  //   "apiBase": "http://embedding-server:8000/v1",
+  //   "apiKey": "not-needed"
+  // },
+
+  // -----------------------------------------
+  // 보안/프라이버시 설정
+  // -----------------------------------------
+  "allowAnonymousTelemetry": false,
+  
+  // -----------------------------------------
+  // UI 설정
+  // -----------------------------------------
+  "ui": {
+    "codeBlockToolbarPosition": "top",
+    "fontSize": 14
+  },
+
+  // -----------------------------------------
+  // 시스템 프롬프트
+  // -----------------------------------------
+  "systemMessage": "You are a helpful AI coding assistant. You are running in a secure financial services environment. Follow these guidelines:\n\n1. Never suggest uploading code to external services\n2. Never suggest using external APIs or services\n3. Be concise and precise in your responses\n4. When generating code, follow the project's existing style\n5. Always consider security best practices\n6. If asked about sensitive data handling, emphasize secure practices"
+}

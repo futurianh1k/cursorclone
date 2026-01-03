@@ -19,8 +19,10 @@ from jose import JWTError, jwt
 
 # JWT 설정
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", secrets.token_urlsafe(32))
+JWT_REFRESH_SECRET_KEY = os.getenv("JWT_REFRESH_SECRET_KEY", secrets.token_urlsafe(32))
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRATION_HOURS = 24 * 7  # 7일
+JWT_ACCESS_EXPIRATION_MINUTES = 15  # 액세스 토큰: 15분
+JWT_REFRESH_EXPIRATION_DAYS = 7    # 리프레시 토큰: 7일
 
 
 class EncryptionService:
@@ -85,28 +87,110 @@ class PasswordService:
 
 
 class JWTAuthService:
-    """JWT 토큰 서비스"""
+    """
+    JWT 토큰 서비스
+    
+    토큰 유형:
+    - Access Token: 짧은 수명 (15분), API 접근용
+    - Refresh Token: 긴 수명 (7일), 토큰 갱신용
+    """
     
     @staticmethod
-    def create_access_token(user_id: str, email: str) -> str:
-        """JWT 액세스 토큰 생성"""
-        expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
+    def create_access_token(user_id: str, email: str, role: str = "developer") -> str:
+        """
+        JWT 액세스 토큰 생성 (15분)
+        
+        Args:
+            user_id: 사용자 ID
+            email: 이메일
+            role: 역할 (권한 체크용)
+        """
+        expires_at = datetime.utcnow() + timedelta(minutes=JWT_ACCESS_EXPIRATION_MINUTES)
         payload = {
             "sub": user_id,
             "email": email,
+            "role": role,
+            "type": "access",
             "exp": expires_at,
             "iat": datetime.utcnow(),
         }
         return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
     
     @staticmethod
+    def create_refresh_token(user_id: str, email: str) -> str:
+        """
+        JWT 리프레시 토큰 생성 (7일)
+        
+        리프레시 토큰은 액세스 토큰 갱신에만 사용됩니다.
+        """
+        expires_at = datetime.utcnow() + timedelta(days=JWT_REFRESH_EXPIRATION_DAYS)
+        token_id = secrets.token_urlsafe(16)  # 토큰 고유 ID (폐기용)
+        payload = {
+            "sub": user_id,
+            "email": email,
+            "type": "refresh",
+            "jti": token_id,  # JWT ID (토큰 폐기용)
+            "exp": expires_at,
+            "iat": datetime.utcnow(),
+        }
+        return jwt.encode(payload, JWT_REFRESH_SECRET_KEY, algorithm=JWT_ALGORITHM)
+    
+    @staticmethod
+    def create_token_pair(user_id: str, email: str, role: str = "developer") -> dict:
+        """
+        액세스/리프레시 토큰 쌍 생성
+        
+        Returns:
+            {
+                "access_token": str,
+                "refresh_token": str,
+                "token_type": "bearer",
+                "expires_in": int (초)
+            }
+        """
+        access_token = JWTAuthService.create_access_token(user_id, email, role)
+        refresh_token = JWTAuthService.create_refresh_token(user_id, email)
+        
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "expires_in": JWT_ACCESS_EXPIRATION_MINUTES * 60,
+        }
+    
+    @staticmethod
     def verify_token(token: str) -> Optional[dict]:
-        """JWT 토큰 검증"""
+        """JWT 액세스 토큰 검증"""
         try:
             payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+            # 액세스 토큰인지 확인
+            if payload.get("type") != "access":
+                # 이전 버전 토큰 (type 없음)도 허용
+                if "type" in payload:
+                    return None
             return payload
         except JWTError:
             return None
+    
+    @staticmethod
+    def verify_refresh_token(token: str) -> Optional[dict]:
+        """JWT 리프레시 토큰 검증"""
+        try:
+            payload = jwt.decode(token, JWT_REFRESH_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+            # 리프레시 토큰인지 확인
+            if payload.get("type") != "refresh":
+                return None
+            return payload
+        except JWTError:
+            return None
+    
+    @staticmethod
+    def get_token_jti(token: str) -> Optional[str]:
+        """리프레시 토큰의 JTI (토큰 ID) 추출"""
+        payload = JWTAuthService.verify_refresh_token(token)
+        if payload:
+            return payload.get("jti")
+        return None
 
 
 class SSHAuthService:
