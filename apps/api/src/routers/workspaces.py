@@ -10,8 +10,8 @@ import subprocess
 import re
 import logging
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, status, Depends
-from typing import List
+from fastapi import APIRouter, HTTPException, status, Depends, Query
+from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import (
     CreateWorkspaceRequest,
