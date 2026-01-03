@@ -1,9 +1,15 @@
 """
 WebSocket 라우터
 - WS /ws/workspaces/{wsId}
+
+다중 인스턴스 지원:
+- REDIS_URL 환경변수 설정 시 Redis pub/sub 사용
+- 미설정 시 로컬 메모리 모드 (단일 인스턴스)
 """
 
 import logging
+import os
+import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 from typing import Dict, Set, Optional
 import json
@@ -12,19 +18,42 @@ from ..services.auth_service import jwt_auth_service
 
 logger = logging.getLogger(__name__)
 
+# Redis 설정
+REDIS_URL = os.getenv("REDIS_URL")  # 예: redis://localhost:6379
+
+# Redis 클라이언트 (선택적)
+redis_client = None
+redis_pubsub = None
+
+if REDIS_URL:
+    try:
+        import redis.asyncio as aioredis
+        redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
+        logger.info(f"Redis pub/sub enabled: {REDIS_URL}")
+    except ImportError:
+        logger.warning("redis package not installed. Using local mode.")
+    except Exception as e:
+        logger.warning(f"Failed to connect to Redis: {e}. Using local mode.")
+
 router = APIRouter(tags=["websocket"])
 
-# 연결된 클라이언트 관리
-# TODO: Redis pub/sub으로 다중 인스턴스 지원
+# 연결된 클라이언트 관리 (로컬 메모리)
 connected_clients: Dict[str, Set[WebSocket]] = {}
 
 
 class ConnectionManager:
-    """WebSocket 연결 관리자"""
+    """
+    WebSocket 연결 관리자
+    
+    다중 인스턴스 지원:
+    - Redis pub/sub 활성화 시: 다른 인스턴스로 메시지 전파
+    - 로컬 모드: 현재 인스턴스 내 클라이언트만
+    """
     
     def __init__(self):
-        # workspace_id -> set of websockets
+        # workspace_id -> set of websockets (로컬 연결)
         self.active_connections: Dict[str, Set[WebSocket]] = {}
+        self._pubsub_task: Optional[asyncio.Task] = None
     
     async def connect(self, websocket: WebSocket, workspace_id: str):
         """새 연결 수락"""
@@ -32,6 +61,10 @@ class ConnectionManager:
         if workspace_id not in self.active_connections:
             self.active_connections[workspace_id] = set()
         self.active_connections[workspace_id].add(websocket)
+        
+        # Redis pub/sub 구독 시작 (첫 연결 시)
+        if redis_client and not self._pubsub_task:
+            self._pubsub_task = asyncio.create_task(self._redis_subscriber())
     
     def disconnect(self, websocket: WebSocket, workspace_id: str):
         """연결 종료"""
@@ -45,7 +78,24 @@ class ConnectionManager:
         await websocket.send_json(message)
     
     async def broadcast(self, message: dict, workspace_id: str, exclude: WebSocket = None):
-        """워크스페이스 내 브로드캐스트"""
+        """
+        워크스페이스 내 브로드캐스트
+        
+        Redis 활성화 시: pub/sub으로 다른 인스턴스에도 전파
+        """
+        # 로컬 브로드캐스트
+        await self._broadcast_local(message, workspace_id, exclude)
+        
+        # Redis pub/sub으로 다른 인스턴스에 전파
+        if redis_client:
+            try:
+                channel = f"ws:workspace:{workspace_id}"
+                await redis_client.publish(channel, json.dumps(message))
+            except Exception as e:
+                logger.error(f"Redis publish failed: {e}")
+    
+    async def _broadcast_local(self, message: dict, workspace_id: str, exclude: WebSocket = None):
+        """로컬 인스턴스 내 브로드캐스트"""
         if workspace_id not in self.active_connections:
             return
         for connection in self.active_connections[workspace_id]:
@@ -55,6 +105,36 @@ class ConnectionManager:
                 except Exception:
                     # 연결이 끊긴 경우 무시
                     pass
+    
+    async def _redis_subscriber(self):
+        """Redis pub/sub 구독자 (백그라운드 태스크)"""
+        if not redis_client:
+            return
+        
+        try:
+            pubsub = redis_client.pubsub()
+            # 모든 워크스페이스 채널 패턴 구독
+            await pubsub.psubscribe("ws:workspace:*")
+            
+            logger.info("Redis pub/sub subscriber started")
+            
+            async for message in pubsub.listen():
+                if message["type"] == "pmessage":
+                    try:
+                        # 채널에서 workspace_id 추출
+                        channel = message["channel"]
+                        workspace_id = channel.split(":")[-1]
+                        data = json.loads(message["data"])
+                        
+                        # 로컬 클라이언트에 전달 (exclude 없음 - 다른 인스턴스에서 온 메시지)
+                        await self._broadcast_local(data, workspace_id)
+                    except Exception as e:
+                        logger.error(f"Redis message processing failed: {e}")
+                        
+        except asyncio.CancelledError:
+            logger.info("Redis pub/sub subscriber cancelled")
+        except Exception as e:
+            logger.error(f"Redis subscriber error: {e}")
 
 
 manager = ConnectionManager()

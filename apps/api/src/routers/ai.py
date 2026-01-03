@@ -1412,11 +1412,19 @@ async def analyze_image(request: ImageAnalysisRequest):
     - UI 디자인에서 코드 생성
     - 다이어그램 해석
     
-    TODO: Vision LLM 연동 (GPT-4V, LLaVA 등)
+    Vision LLM 지원:
+    - LiteLLM을 통한 GPT-4V, Claude Vision, LLaVA 등
+    - VISION_MODEL 환경변수로 모델 지정
     """
-    # 개발 모드 Mock 응답
-    dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+    import base64
+    import httpx
     
+    # 환경 설정
+    dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+    litellm_url = os.getenv("LITELLM_BASE_URL", "http://cursor-poc-litellm:4000")
+    vision_model = os.getenv("VISION_MODEL", "gpt-4-vision-preview")  # 기본: GPT-4V
+    
+    # 개발 모드 Mock 응답
     if dev_mode:
         question = request.question or "이미지를 분석해주세요."
         return ImageAnalysisResponse(
@@ -1426,9 +1434,12 @@ async def analyze_image(request: ImageAnalysisRequest):
 
 이 응답은 개발 모드에서 생성된 Mock 응답입니다.
 
-실제 이미지 분석을 위해서는 Vision LLM (GPT-4V, LLaVA 등)을 연결해주세요.
+실제 이미지 분석을 위해서는:
+1. VISION_MODEL 환경변수 설정 (예: gpt-4-vision-preview, claude-3-opus)
+2. DEV_MODE=false 설정
+3. LiteLLM 프록시 연결 확인
 
-**지원 예정 기능**:
+**지원 기능**:
 - 스크린샷에서 에러 메시지 추출 (OCR)
 - UI 디자인에서 코드 생성
 - 다이어그램/플로우차트 해석
@@ -1438,11 +1449,95 @@ async def analyze_image(request: ImageAnalysisRequest):
             code_blocks=["# 개발 모드에서는 코드 추출이 지원되지 않습니다."],
         )
     
-    # TODO: 실제 Vision LLM 연동
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail={"error": "Vision LLM not implemented yet", "code": "NOT_IMPLEMENTED"},
-    )
+    # 이미지 파일 읽기 및 Base64 인코딩
+    image_id = request.image_id
+    upload_dir = Path(os.getenv("UPLOAD_DIR", "/tmp/uploads"))
+    image_path = upload_dir / image_id
+    
+    if not image_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "Image not found", "code": "IMAGE_NOT_FOUND"},
+        )
+    
+    # 이미지를 Base64로 인코딩
+    try:
+        with open(image_path, "rb") as f:
+            image_data = base64.b64encode(f.read()).decode("utf-8")
+        
+        # 파일 확장자로 MIME 타입 추정
+        suffix = image_path.suffix.lower()
+        mime_type = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+        }.get(suffix, "image/png")
+        
+        image_url = f"data:{mime_type};base64,{image_data}"
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": f"Failed to read image: {e}", "code": "IMAGE_READ_ERROR"},
+        )
+    
+    # Vision LLM 요청 (OpenAI 호환 형식)
+    question = request.question or "이 이미지를 분석해주세요. 에러 메시지가 있다면 추출하고, 코드가 있다면 설명해주세요."
+    
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": question},
+                {"type": "image_url", "image_url": {"url": image_url}},
+            ],
+        }
+    ]
+    
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{litellm_url}/v1/chat/completions",
+                json={
+                    "model": vision_model,
+                    "messages": messages,
+                    "max_tokens": 2000,
+                },
+                headers={"Content-Type": "application/json"},
+            )
+            
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail={"error": f"Vision LLM error: {response.text}", "code": "VISION_LLM_ERROR"},
+                )
+            
+            result = response.json()
+            description = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            
+            # 코드 블록 추출 (```로 둘러싸인 부분)
+            import re
+            code_pattern = r"```(?:\w+)?\n(.*?)```"
+            code_blocks = re.findall(code_pattern, description, re.DOTALL)
+            
+            return ImageAnalysisResponse(
+                description=description,
+                extracted_text=None,  # OCR 결과가 있다면 여기에
+                code_blocks=code_blocks if code_blocks else None,
+            )
+            
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail={"error": "Vision LLM timeout", "code": "VISION_LLM_TIMEOUT"},
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": f"Vision LLM connection error: {e}", "code": "VISION_LLM_CONNECTION_ERROR"},
+        )
 
 
 @router.post(

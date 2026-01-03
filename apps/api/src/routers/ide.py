@@ -430,22 +430,83 @@ async def delete_ide_container(container_id: str):
     return {"success": True, "message": "IDE 컨테이너가 삭제되었습니다"}
 
 
+async def _collect_container_metrics() -> tuple[float, float]:
+    """
+    Docker 컨테이너 메트릭 수집
+    
+    Returns:
+        (avg_cpu_usage, avg_memory_usage) 퍼센트
+    """
+    if not DOCKER_AVAILABLE or not _ide_containers:
+        return 0.0, 0.0
+    
+    try:
+        client = docker.from_env()
+        cpu_usages = []
+        memory_usages = []
+        
+        for container_info in _ide_containers.values():
+            container_id = container_info.get("docker_container_id")
+            if not container_id:
+                continue
+            
+            try:
+                container = client.containers.get(container_id)
+                stats = container.stats(stream=False)
+                
+                # CPU 사용률 계산
+                cpu_delta = stats["cpu_stats"]["cpu_usage"]["total_usage"] - \
+                           stats["precpu_stats"]["cpu_usage"]["total_usage"]
+                system_delta = stats["cpu_stats"]["system_cpu_usage"] - \
+                              stats["precpu_stats"]["system_cpu_usage"]
+                
+                if system_delta > 0:
+                    cpu_percent = (cpu_delta / system_delta) * 100.0
+                    cpu_usages.append(cpu_percent)
+                
+                # 메모리 사용률 계산
+                mem_usage = stats["memory_stats"].get("usage", 0)
+                mem_limit = stats["memory_stats"].get("limit", 1)
+                mem_percent = (mem_usage / mem_limit) * 100.0
+                memory_usages.append(mem_percent)
+                
+            except docker.errors.NotFound:
+                continue
+            except Exception as e:
+                logger.warning(f"Failed to get metrics for container {container_id}: {e}")
+                continue
+        
+        avg_cpu = sum(cpu_usages) / len(cpu_usages) if cpu_usages else 0.0
+        avg_mem = sum(memory_usages) / len(memory_usages) if memory_usages else 0.0
+        
+        return avg_cpu, avg_mem
+        
+    except Exception as e:
+        logger.error(f"Failed to collect container metrics: {e}")
+        return 0.0, 0.0
+
+
 @router.get("/health", response_model=IDEHealthResponse)
 async def get_ide_health():
     """
     IDE 서비스 상태 조회
+    
+    Docker가 사용 가능한 경우 실제 컨테이너 메트릭 수집
     """
     total = len(_ide_containers)
     running = sum(1 for c in _ide_containers.values() 
                   if c["status"] == IDEContainerStatus.RUNNING.value)
     available = IDE_PORT_RANGE_END - IDE_PORT_RANGE_START - len(_used_ports)
     
+    # 실제 메트릭 수집
+    avg_cpu, avg_mem = await _collect_container_metrics()
+    
     return IDEHealthResponse(
         total_containers=total,
         running_containers=running,
         available_capacity=available,
-        avg_cpu_usage=0.0,  # TODO: 실제 메트릭 수집
-        avg_memory_usage=0.0,
+        avg_cpu_usage=round(avg_cpu, 2),
+        avg_memory_usage=round(avg_mem, 2),
     )
 
 
