@@ -109,14 +109,17 @@ services:
     container_name: cursor-poc-vllm
     environment:
       VLLM_API_KEY: ${VLLM_API_KEY:-}
-    command: >
-      vllm serve
-      --model ${VLLM_MODEL:-Qwen/Qwen2.5-Coder-7B-Instruct}
-      --host 0.0.0.0
-      --port 8000
-      --trust-remote-code
-      --max-model-len ${VLLM_MAX_MODEL_LEN:-8192}
-      --gpu-memory-utilization ${VLLM_GPU_MEMORY_UTILIZATION:-0.9}
+    command:
+      - "Qwen/Qwen2.5-Coder-7B-Instruct"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8000"
+      - "--trust-remote-code"
+      - "--max-model-len"
+      - "8192"
+      - "--gpu-memory-utilization"
+      - "0.9"
     ports:
       - "${VLLM_PORT:-8001}:8000"
     volumes:
