@@ -65,10 +65,21 @@ export async function registerServer(request: RegisterServerRequest): Promise<Se
   return response.json();
 }
 
+/** 서버 리소스 정보 */
+export interface ServerResourceInfo {
+  cpuCores?: number;
+  memoryTotal?: number;
+  memoryAvailable?: number;
+  diskTotal?: number;
+  diskAvailable?: number;
+  kubernetesVersion?: string;
+  nodeCount?: number;
+}
+
 export async function testServerConnection(serverId: string): Promise<{
   success: boolean;
   message: string;
-  resourceInfo?: any;
+  resourceInfo?: ServerResourceInfo;
 }> {
   const response = await fetch(`${API_BASE_URL}/api/admin/servers/${serverId}/test`, {
     method: "POST",

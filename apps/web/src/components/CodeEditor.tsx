@@ -1,16 +1,42 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import Editor from "@monaco-editor/react";
+import Editor, { Monaco } from "@monaco-editor/react";
+import type { editor } from "monaco-editor";
 import { getFileContent, updateFileContent } from "@/lib/api";
 
+/**
+ * 코드 선택 영역
+ */
+interface CodeSelection {
+  startLine: number;
+  endLine: number;
+}
+
+/**
+ * CodeEditor Props
+ */
 interface CodeEditorProps {
+  /** 워크스페이스 ID */
   workspaceId: string;
+  /** 편집할 파일 경로 */
   filePath?: string;
-  onSelectionChange?: (selection: { startLine: number; endLine: number } | null) => void;
+  /** 코드 선택 영역 변경 콜백 */
+  onSelectionChange?: (selection: CodeSelection | null) => void;
+  /** 내용 변경 콜백 */
   onContentChange?: (content: string) => void;
 }
 
+/**
+ * Monaco 에디터 기반 코드 편집기
+ * 
+ * 기능:
+ * - 파일 로드/저장
+ * - 자동 저장 (2초 debounce)
+ * - Ctrl+S 단축키
+ * - 언어별 구문 강조
+ * - 선택 영역 감지
+ */
 export default function CodeEditor({
   workspaceId,
   filePath,
@@ -24,8 +50,8 @@ export default function CodeEditor({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const editorRef = useRef<any>(null);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
   useEffect(() => {
     if (filePath) {
@@ -136,7 +162,15 @@ export default function CodeEditor({
     }
   };
 
-  const handleEditorMount = (editor: any, monaco: any) => {
+  /**
+   * 에디터 마운트 핸들러
+   * 
+   * 단축키 및 이벤트 리스너 설정
+   */
+  const handleEditorMount = (
+    editor: editor.IStandaloneCodeEditor,
+    monaco: Monaco
+  ): void => {
     editorRef.current = editor;
     
     // Ctrl+S / Cmd+S 저장 단축키
@@ -164,6 +198,9 @@ export default function CodeEditor({
   if (loading) {
     return (
       <div
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
         style={{
           display: "flex",
           alignItems: "center",
@@ -173,7 +210,7 @@ export default function CodeEditor({
           color: "#666",
         }}
       >
-        Loading...
+        <span aria-label="파일 로딩 중">Loading...</span>
       </div>
     );
   }
@@ -181,35 +218,53 @@ export default function CodeEditor({
   if (error) {
     return (
       <div
+        role="alert"
+        aria-live="assertive"
         style={{
           padding: "12px",
           fontSize: "13px",
           color: "#d32f2f",
         }}
       >
-        Error: {error}
+        <span aria-label="오류">Error: {error}</span>
       </div>
     );
   }
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+    <div 
+      style={{ height: "100%", display: "flex", flexDirection: "column" }}
+      role="region"
+      aria-label={filePath ? `코드 에디터: ${filePath}` : "코드 에디터"}
+    >
       {/* 저장 상태 표시 */}
-      <div style={{ 
-        padding: "4px 12px", 
-        fontSize: "11px", 
-        backgroundColor: "#f8f9fa",
-        borderBottom: "1px solid #eee",
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-      }}>
+      <div 
+        style={{ 
+          padding: "4px 12px", 
+          fontSize: "11px", 
+          backgroundColor: "#f8f9fa",
+          borderBottom: "1px solid #eee",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+        role="status"
+        aria-live="polite"
+      >
         <span style={{ color: "#666" }}>
-          {saving ? "💾 저장 중..." : saved ? "✅ 저장됨" : "⚠️ 변경됨 (자동 저장 대기)"}
+          {saving ? (
+            <span aria-label="저장 중">💾 저장 중...</span>
+          ) : saved ? (
+            <span aria-label="저장 완료">✅ 저장됨</span>
+          ) : (
+            <span aria-label="변경 사항 있음">⚠️ 변경됨 (자동 저장 대기)</span>
+          )}
         </span>
         <button
           onClick={() => saveFile(content)}
           disabled={saving || saved}
+          aria-label={saving ? "저장 중..." : saved ? "저장됨" : "파일 저장 (Ctrl+S)"}
+          aria-disabled={saving || saved}
           style={{
             padding: "2px 8px",
             fontSize: "11px",
@@ -225,7 +280,12 @@ export default function CodeEditor({
       </div>
       
       {/* 에디터 */}
-      <div style={{ flex: 1 }}>
+      <div 
+        style={{ flex: 1 }}
+        role="textbox"
+        aria-multiline="true"
+        aria-label={`${language} 코드 편집기`}
+      >
         <Editor
           height="100%"
           language={language}
@@ -237,6 +297,9 @@ export default function CodeEditor({
             fontSize: 14,
             wordWrap: "on",
             automaticLayout: true,
+            // 접근성 옵션
+            accessibilitySupport: "on",
+            ariaLabel: filePath ? `${filePath} 편집 중` : "코드 편집기",
           }}
         />
       </div>

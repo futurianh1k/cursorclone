@@ -31,8 +31,9 @@ export default function NewServerPage() {
     try {
       await registerServer(formData);
       router.push("/admin/servers");
-    } catch (err: any) {
-      setError(err.message || "서버 등록에 실패했습니다");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "서버 등록에 실패했습니다";
+      setError(message);
     } finally {
       setLoading(false);
     }
