@@ -128,10 +128,12 @@ export async function getFileContent(
   workspaceId: string,
   path: string
 ): Promise<FileContent> {
+  const headers = getAuthHeaders();
+  console.log('[getFileContent] Headers:', headers);
   const response = await fetch(
     `${API_BASE_URL}/api/workspaces/${workspaceId}/files/content?path=${encodeURIComponent(path)}`,
     {
-      headers: getAuthHeaders(),
+      headers,
     }
   );
   if (!response.ok) {
