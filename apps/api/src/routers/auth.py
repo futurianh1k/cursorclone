@@ -220,7 +220,6 @@ async def signup(
     summary="로그인",
     description="사용자 로그인 (Rate Limiting, 2FA 지원)",
 )
-@limiter.limit("5/minute")  # slowapi: 분당 5회 제한
 async def login(
     request: Request,
     login_request: LoginWith2FARequest,
@@ -274,7 +273,7 @@ async def login(
     # 2FA 검증 (활성화된 경우)
     # 참고: UserModel에 totp_secret, totp_enabled 필드 필요
     if hasattr(user, 'totp_enabled') and user.totp_enabled:
-        if not login_request.totp_code:
+        if not login_login_request.totp_code:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={"error": "2FA code required", "code": "2FA_REQUIRED"},
@@ -284,7 +283,7 @@ async def login(
         two_fa_service = get_2fa_service()
         verified, used_backup = two_fa_service.verify_2fa_login(
             user.totp_secret,
-            login_request.totp_code,
+            login_login_request.totp_code,
             user.backup_code_hashes if hasattr(user, 'backup_code_hashes') else None,
         )
         
