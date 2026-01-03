@@ -9,6 +9,7 @@
  */
 
 import DOMPurify from 'dompurify';
+import type { Config } from 'dompurify';
 
 // ============================================================
 // 기본 설정
@@ -51,7 +52,7 @@ const ALLOWED_ATTR = [
  */
 export function sanitizeHtml(
   dirty: string,
-  options?: DOMPurify.Config
+  options?: Config
 ): string {
   if (typeof window === 'undefined') {
     // SSR에서는 기본 이스케이프만 수행
