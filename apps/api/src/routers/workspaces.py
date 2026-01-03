@@ -8,9 +8,11 @@ Workspaces 라우터
 import os
 import subprocess
 import re
+import logging
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from typing import List
+from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import (
     CreateWorkspaceRequest,
     CloneGitHubRequest,
@@ -23,8 +25,12 @@ from ..utils.filesystem import (
     delete_workspace_directory,
     workspace_exists,
 )
+from ..db.connection import get_db
+from ..services.workspace_service import WorkspaceService
+from ..services.workspace_manager import WorkspaceManager
 
 router = APIRouter(prefix="/api/workspaces", tags=["workspaces"])
+logger = logging.getLogger(__name__)
 
 
 @router.post(
@@ -235,7 +241,10 @@ async def clone_github_repository(request: CloneGitHubRequest):
     summary="워크스페이스 삭제",
     description="워크스페이스와 모든 관련 데이터를 완전히 삭제합니다.",
 )
-async def delete_workspace(workspace_id: str):
+async def delete_workspace(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db)
+):
     """
     워크스페이스를 완전히 삭제합니다.
 
@@ -243,7 +252,7 @@ async def delete_workspace(workspace_id: str):
     1. 워크스페이스 존재 확인
     2. 실행 중인 컨테이너 정리 (있는 경우)
     3. 파일시스템에서 워크스페이스 디렉토리 삭제
-    4. 데이터베이스에서 메타데이터 삭제 (향후)
+    4. 데이터베이스에서 메타데이터 삭제
 
     WARNING: 이 작업은 되돌릴 수 없습니다.
     """
@@ -263,18 +272,26 @@ async def delete_workspace(workspace_id: str):
     # if not has_permission(current_user, workspace_id):
     #     raise HTTPException(status_code=403, detail="Forbidden")
 
-    # TODO: 실행 중인 컨테이너 정리
-    # from ..services.workspace_manager import get_workspace_manager
-    # manager = get_workspace_manager()
-    # try:
-    #     await manager.remove_container(workspace_id, force=True)
-    # except Exception as e:
-    #     # 컨테이너가 없거나 이미 삭제된 경우 무시
-    #     pass
+    # 1. 실행 중인 컨테이너 정리
+    manager = WorkspaceManager.get_instance()
+    try:
+        success, message = await manager.remove_container(
+            workspace_id,
+            force=True,
+            remove_volumes=True
+        )
+        if success:
+            logger.info(f"Container removed for workspace {workspace_id}: {message}")
+        else:
+            logger.warning(f"Failed to remove container for workspace {workspace_id}: {message}")
+    except Exception as e:
+        # 컨테이너가 없거나 이미 삭제된 경우 무시
+        logger.info(f"No container to remove for workspace {workspace_id}: {e}")
 
-    # 워크스페이스 디렉토리 삭제
+    # 2. 워크스페이스 디렉토리 삭제
     try:
         delete_workspace_directory(workspace_root)
+        logger.info(f"Workspace directory deleted: {workspace_id}")
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -294,10 +311,22 @@ async def delete_workspace(workspace_id: str):
             },
         )
 
-    # TODO: 데이터베이스에서 메타데이터 삭제
-    # from ..services.workspace_service import WorkspaceService
-    # service = WorkspaceService(db)
-    # await service.hard_delete_workspace(workspace_id)
+    # 3. 데이터베이스에서 메타데이터 삭제
+    try:
+        service = WorkspaceService(db)
+        deleted = await service.hard_delete_workspace(workspace_id)
+        if deleted:
+            logger.info(f"Workspace metadata deleted from database: {workspace_id}")
+        else:
+            logger.warning(f"Workspace metadata not found in database: {workspace_id}")
+
+        # 커밋
+        await db.commit()
+    except Exception as e:
+        logger.error(f"Failed to delete workspace metadata: {e}")
+        await db.rollback()
+        # DB 삭제 실패는 치명적이지 않으므로 경고만 로깅
+        # 파일은 이미 삭제되었으므로 계속 진행
 
     # 204 No Content 응답
     return None
