@@ -450,7 +450,11 @@ export async function debugCode(request: AIDebugRequest): Promise<AIDebugRespons
 }
 
 // --- Get Available Modes ---
-export interface AIMode {
+// AIMode: 문자열 리터럴 타입 (agent, ask, plan, debug)
+export type AIModeType = "agent" | "ask" | "plan" | "debug";
+
+// AIModeInfo: 모드 정보 객체 (UI 표시용)
+export interface AIModeInfo {
   id: string;
   name: string;
   description: string;
@@ -458,7 +462,7 @@ export interface AIMode {
 }
 
 export interface AIModesResponse {
-  modes: AIMode[];
+  modes: AIModeInfo[];
   current: string;
 }
 
@@ -650,7 +654,7 @@ export interface ContextItem {
 export interface AIAdvancedChatRequest {
   workspaceId: string;
   message: string;
-  mode: AIMode;
+  mode: AIModeType;
   contexts?: ContextItem[];
   history?: Array<{ role: string; content: string }>;
   currentFile?: string;
@@ -660,7 +664,7 @@ export interface AIAdvancedChatRequest {
 
 export interface AIAdvancedChatResponse {
   response: string;
-  mode: AIMode;
+  mode: AIModeType;
   tokensUsed: number;
   planSteps?: TaskStep[];
   fileChanges?: FileChange[];
