@@ -11,8 +11,19 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import os
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
+
+# 로깅 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+# 환경 설정
+DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 # .env 파일 로드 (apps/api/.env)
 # __file__ = apps/api/src/main.py
@@ -94,17 +105,25 @@ async def global_exception_handler(request: Request, exc: Exception):
     - 상세 에러 메시지는 로그에만 기록
     - 사용자에게는 일반적인 메시지만 반환
     """
-    # TODO: 로깅 (스택트레이스는 내부 로그에만)
-    # logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    # 로깅 (스택트레이스는 내부 로그에만)
+    logger.error(
+        f"Unhandled exception: {request.method} {request.url.path}",
+        exc_info=True,  # 스택트레이스 포함
+    )
+    
+    # 응답 내용 구성
+    content = {
+        "error": "Internal server error",
+        "code": "INTERNAL_ERROR",
+    }
+    
+    # 개발 환경에서만 상세 메시지 포함
+    if DEBUG:
+        content["detail"] = str(exc)
     
     return JSONResponse(
         status_code=500,
-        content={
-            "error": "Internal server error",
-            "code": "INTERNAL_ERROR",
-            # 상세 메시지는 개발 환경에서만
-            # "detail": str(exc) if DEBUG else None,
-        },
+        content=content,
     )
 
 # ============================================================

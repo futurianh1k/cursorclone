@@ -3,10 +3,14 @@ WebSocket 라우터
 - WS /ws/workspaces/{wsId}
 """
 
+import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
-from typing import Dict, Set
+from typing import Dict, Set, Optional
 import json
 from ..models import WSMessageType, WSMessage
+from ..services.auth_service import jwt_auth_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["websocket"])
 
@@ -56,11 +60,32 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-def _validate_workspace_access(ws_id: str, token: str = None) -> bool:
-    """워크스페이스 접근 권한 검증"""
-    # TODO: 실제 권한 검증 로직 구현
-    # - 토큰 검증
-    # - 워크스페이스 접근 권한 확인
+def _validate_token(token: Optional[str]) -> Optional[dict]:
+    """
+    JWT 토큰 검증
+    
+    Returns:
+        유효한 경우 페이로드 dict, 그렇지 않으면 None
+    """
+    if not token:
+        return None
+    
+    try:
+        payload = jwt_auth_service.verify_token(token)
+        return payload
+    except Exception as e:
+        logger.warning(f"WebSocket token validation failed: {e}")
+        return None
+
+
+def _validate_workspace_access(ws_id: str, user_id: str) -> bool:
+    """
+    워크스페이스 접근 권한 검증
+    
+    사용자가 해당 워크스페이스에 접근할 수 있는지 확인합니다.
+    """
+    # TODO: DB에서 워크스페이스 소유권/공유 관계 확인
+    # 현재 PoC에서는 기본적으로 허용
     return True
 
 
@@ -69,28 +94,37 @@ async def websocket_endpoint(websocket: WebSocket, ws_id: str):
     """
     워크스페이스 WebSocket 연결
     
+    인증: Query parameter `token`에 JWT 토큰 전달
+    예: ws://host/ws/workspaces/ws_my-project?token=eyJ...
+    
     메시지 타입:
     - file_change: 파일 변경 알림
     - cursor_move: 커서 이동 (협업용)
     - ai_stream: AI 응답 스트리밍
     - error: 에러 메시지
     
-    TODO: 실제 기능 구현
-    - 인증 토큰 검증 (query param 또는 첫 메시지)
-    - 파일 변경 감지 및 브로드캐스트
-    - AI 응답 스트리밍
-    - 협업 기능 (커서 위치 공유)
-    
     TODO: 스케일링
     - Redis pub/sub으로 다중 인스턴스 지원
     - 메시지 큐 연동
     """
-    # TODO: 인증 검증
-    # token = websocket.query_params.get("token")
-    # if not _validate_workspace_access(ws_id, token):
-    #     await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-    #     return
+    # 인증 검증 (query parameter에서 토큰 추출)
+    token = websocket.query_params.get("token")
+    payload = _validate_token(token)
     
+    if not payload:
+        logger.warning(f"WebSocket connection rejected: invalid token for workspace {ws_id}")
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    
+    user_id = payload.get("sub", "anonymous")
+    
+    # 워크스페이스 접근 권한 확인
+    if not _validate_workspace_access(ws_id, user_id):
+        logger.warning(f"WebSocket connection rejected: no access to workspace {ws_id} for user {user_id}")
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    
+    logger.info(f"WebSocket connected: user={user_id}, workspace={ws_id}")
     await manager.connect(websocket, ws_id)
     
     try:
