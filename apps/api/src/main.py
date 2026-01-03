@@ -32,6 +32,7 @@ from .routers import (
     container_router,
     ssh_router,
     ide_router,
+    ai_gateway_router,
 )
 
 # ============================================================
@@ -145,6 +146,7 @@ app.include_router(admin_router)
 app.include_router(container_router)  # 컨테이너 관리 라우터
 app.include_router(ssh_router)        # SSH 접속 관리 라우터
 app.include_router(ide_router)        # IDE (code-server) 프로비저닝 라우터
+app.include_router(ai_gateway_router) # AI Gateway (LiteLLM/Tabby 통합) 라우터
 
 # WebSocket 라우터 등록
 app.include_router(ws_router)

@@ -1,8 +1,44 @@
 # VDE Web IDE Platform - 신규 서비스
 # 기존 docker-compose.yml과 함께 사용
-# 사용법: docker compose -f docker-compose.yml -f docker-compose.webide.yml --profile gpu up -d
+# 
+# 사용법:
+#   GPU 환경: docker compose -f docker-compose.yml -f docker-compose.webide.yml --profile gpu up -d
+#   CPU 환경: docker compose -f docker-compose.yml -f docker-compose.webide.yml --profile cpu up -d
+#   인증 포함: docker compose -f docker-compose.yml -f docker-compose.webide.yml --profile gpu --profile auth up -d
 
 services:
+  # ===========================================
+  # Web IDE (code-server) - PoC 공유 인스턴스
+  # ===========================================
+  code-server:
+    build:
+      context: ./docker/code-server
+      dockerfile: Dockerfile
+    image: cursor-poc-code-server:latest
+    container_name: cursor-poc-code-server
+    environment:
+      PASSWORD: ${CODE_SERVER_PASSWORD:-cursor}
+      TABBY_ENDPOINT: http://cursor-poc-tabby:8080
+      LITELLM_ENDPOINT: http://cursor-poc-litellm:4000
+      TZ: Asia/Seoul
+    volumes:
+      # 워크스페이스 마운트
+      - ${WORKSPACE_BASE_PATH:-./workspaces}:/home/coder/project
+      # Continue 설정 (동적 업데이트용)
+      - ./docker/code-server/continue-config.json:/home/coder/.continue/config.json:ro
+    ports:
+      - "${CODE_SERVER_PORT:-8443}:8080"
+    networks:
+      - cursor-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      - litellm
   # ===========================================
   # Reverse Proxy (Nginx)
   # ===========================================
@@ -56,7 +92,7 @@ services:
       - auth
 
   # ===========================================
-  # AI Autocomplete (Tabby)
+  # AI Autocomplete (Tabby) - GPU 모드
   # ===========================================
   tabby:
     image: tabbyml/tabby:0.21.0
@@ -89,6 +125,33 @@ services:
       - gpu
 
   # ===========================================
+  # AI Autocomplete (Tabby) - CPU 모드
+  # 소규모 테스트/개발용 (GPU 없는 환경)
+  # ===========================================
+  tabby-cpu:
+    image: tabbyml/tabby:0.21.0
+    container_name: cursor-poc-tabby
+    command: serve --model StarCoder2-3B --device cpu
+    environment:
+      TABBY_DISABLE_USAGE_COLLECTION: "1"
+    volumes:
+      - tabby_data:/data
+      - ${HF_HOME:-~/.cache/huggingface}:/root/.cache/huggingface
+    ports:
+      - "${TABBY_PORT:-8081}:8080"
+    networks:
+      - cursor-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+    profiles:
+      - cpu
+
+  # ===========================================
   # LLM Gateway (LiteLLM Proxy)
   # 역할: 정책/감사/라우팅
   # ===========================================
@@ -115,9 +178,42 @@ services:
       retries: 3
       start_period: 30s
 
+  # ===========================================
+  # Git Server (Gitea) - 경량 Git 저장소
+  # ===========================================
+  gitea:
+    image: gitea/gitea:1.21-rootless
+    container_name: cursor-poc-gitea
+    environment:
+      GITEA__server__ROOT_URL: ${GITEA_ROOT_URL:-http://localhost:3001}
+      GITEA__server__SSH_DOMAIN: ${GITEA_SSH_DOMAIN:-localhost}
+      GITEA__server__SSH_PORT: ${GITEA_SSH_PORT:-2222}
+      GITEA__database__DB_TYPE: sqlite3
+      GITEA__service__DISABLE_REGISTRATION: "false"
+      GITEA__security__INSTALL_LOCK: "false"
+    volumes:
+      - gitea_data:/var/lib/gitea
+      - gitea_config:/etc/gitea
+    ports:
+      - "${GITEA_HTTP_PORT:-3001}:3000"
+      - "${GITEA_SSH_PORT:-2222}:2222"
+    networks:
+      - cursor-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    profiles:
+      - git
+
 volumes:
   keycloak_data:
   tabby_data:
+  gitea_data:
+  gitea_config:
+  code_server_data:
 
 # 기존 cursor-network 사용
 networks:
