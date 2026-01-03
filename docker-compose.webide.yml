@@ -1,0 +1,126 @@
+# VDE Web IDE Platform - 신규 서비스
+# 기존 docker-compose.yml과 함께 사용
+# 사용법: docker compose -f docker-compose.yml -f docker-compose.webide.yml --profile gpu up -d
+
+services:
+  # ===========================================
+  # Reverse Proxy (Nginx)
+  # ===========================================
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: cursor-poc-nginx
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - api
+    networks:
+      - cursor-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================
+  # Authentication (Keycloak) - SSO/MFA
+  # ===========================================
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0
+    container_name: cursor-poc-keycloak
+    command: start-dev
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_PROXY: edge
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - "${KEYCLOAK_PORT:-8180}:8080"
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+    networks:
+      - cursor-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /health/ready HTTP/1.1\\nHost: localhost\\n\\n' >&3 && cat <&3 | grep -q '200'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    profiles:
+      - auth
+
+  # ===========================================
+  # AI Autocomplete (Tabby)
+  # ===========================================
+  tabby:
+    image: tabbyml/tabby:0.21.0
+    container_name: cursor-poc-tabby
+    command: serve --model StarCoder2-3B --device cuda
+    environment:
+      TABBY_DISABLE_USAGE_COLLECTION: "1"
+    volumes:
+      - tabby_data:/data
+      - ${HF_HOME:-~/.cache/huggingface}:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    ports:
+      - "${TABBY_PORT:-8081}:8080"
+    networks:
+      - cursor-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+    profiles:
+      - gpu
+
+  # ===========================================
+  # LLM Gateway (LiteLLM Proxy)
+  # 역할: 정책/감사/라우팅
+  # ===========================================
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: cursor-poc-litellm
+    command: --config /app/config.yaml --port 4000
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-cursor-poc-key}
+      # 프롬프트/응답 본문 로깅 비활성화 (보안)
+      LITELLM_LOG_REQUEST_BODY: "false"
+      LITELLM_LOG_RESPONSE_BODY: "false"
+    volumes:
+      - ./docker/litellm/config.yaml:/app/config.yaml:ro
+    ports:
+      - "${LITELLM_PORT:-4000}:4000"
+    networks:
+      - cursor-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  keycloak_data:
+  tabby_data:
+
+# 기존 cursor-network 사용
+networks:
+  cursor-network:
+    external: true
+    name: cursor-onprem-poc_cursor-network
