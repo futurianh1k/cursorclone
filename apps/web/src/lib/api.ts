@@ -5,6 +5,23 @@
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+// 인증 토큰 가져오기
+function getAuthToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("access_token");
+}
+
+// 인증 헤더 생성
+function getAuthHeaders(): Record<string, string> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+
 // ============================================================
 // Workspaces
 // ============================================================
@@ -16,7 +33,9 @@ export interface Workspace {
 }
 
 export async function listWorkspaces(): Promise<Workspace[]> {
-  const response = await fetch(`${API_BASE_URL}/api/workspaces`);
+  const response = await fetch(`${API_BASE_URL}/api/workspaces`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     throw new Error(`Failed to list workspaces: ${response.statusText}`);
   }
@@ -26,7 +45,7 @@ export async function listWorkspaces(): Promise<Workspace[]> {
 export async function createWorkspace(name: string, language?: string): Promise<Workspace> {
   const response = await fetch(`${API_BASE_URL}/api/workspaces`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ name, language: language || "python" }),
   });
   if (!response.ok) {
@@ -47,7 +66,7 @@ export async function cloneGitHubRepository(
 ): Promise<Workspace> {
   const response = await fetch(`${API_BASE_URL}/api/workspaces/clone`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify(request),
   });
   if (!response.ok) {
@@ -61,6 +80,8 @@ export async function cloneGitHubRepository(
 
 export async function deleteWorkspace(workspaceId: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/workspaces/${workspaceId}`, {
+    headers: getAuthHeaders(),
+    headers: getAuthHeaders(),
     method: "DELETE",
   });
   if (!response.ok) {
@@ -89,7 +110,9 @@ export interface FileTree {
 }
 
 export async function getFileTree(workspaceId: string): Promise<FileTree> {
-  const response = await fetch(`${API_BASE_URL}/api/workspaces/${workspaceId}/files`);
+  const response = await fetch(`${API_BASE_URL}/api/workspaces/${workspaceId}/files`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     throw new Error(`Failed to get file tree: ${response.statusText}`);
   }
@@ -124,7 +147,7 @@ export async function updateFileContent(
     `${API_BASE_URL}/api/workspaces/${workspaceId}/files/content`,
     {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ path, content }),
     }
   );
@@ -285,7 +308,7 @@ export interface AIExplainResponse {
 export async function explainCode(request: AIExplainRequest): Promise<AIExplainResponse> {
   const response = await fetch(`${API_BASE_URL}/api/ai/explain`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify(request),
   });
   if (!response.ok) {
@@ -313,7 +336,7 @@ export interface AIChatResponse {
 export async function chatWithAI(request: AIChatRequest): Promise<AIChatResponse> {
   const response = await fetch(`${API_BASE_URL}/api/ai/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify(request),
   });
   if (!response.ok) {
@@ -340,7 +363,7 @@ export interface AIRewriteResponse {
 export async function rewriteCode(request: AIRewriteRequest): Promise<AIRewriteResponse> {
   const response = await fetch(`${API_BASE_URL}/api/ai/rewrite`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify(request),
   });
   if (!response.ok) {
@@ -378,7 +401,7 @@ export interface AIPlanResponse {
 export async function createPlan(request: AIPlanRequest): Promise<AIPlanResponse> {
   const response = await fetch(`${API_BASE_URL}/api/ai/plan`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify(request),
   });
   if (!response.ok) {
@@ -413,7 +436,7 @@ export interface AIAgentResponse {
 export async function runAgent(request: AIAgentRequest): Promise<AIAgentResponse> {
   const response = await fetch(`${API_BASE_URL}/api/ai/agent`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify(request),
   });
   if (!response.ok) {
@@ -452,7 +475,7 @@ export interface AIDebugResponse {
 export async function debugCode(request: AIDebugRequest): Promise<AIDebugResponse> {
   const response = await fetch(`${API_BASE_URL}/api/ai/debug`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify(request),
   });
   if (!response.ok) {
@@ -507,7 +530,7 @@ export async function validatePatch(
 ): Promise<PatchValidateResponse> {
   const response = await fetch(`${API_BASE_URL}/api/patch/validate`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify(request),
   });
   if (!response.ok) {
@@ -531,7 +554,7 @@ export interface PatchApplyResponse {
 export async function applyPatch(request: PatchApplyRequest): Promise<PatchApplyResponse> {
   const response = await fetch(`${API_BASE_URL}/api/patch/apply`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify(request),
   });
   if (!response.ok) {
@@ -602,7 +625,7 @@ export async function getSSHConnectionInfo(workspaceId: string): Promise<SSHConn
 export async function setupSSHKey(workspaceId: string, publicKey: string): Promise<SSHKeyResponse> {
   const response = await fetch(`${API_BASE_URL}/api/workspaces/${workspaceId}/ssh/key`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ publicKey }),
   });
   if (!response.ok) {
@@ -615,7 +638,7 @@ export async function setupSSHKey(workspaceId: string, publicKey: string): Promi
 export async function setupSSHPassword(workspaceId: string, password: string): Promise<SSHKeyResponse> {
   const response = await fetch(`${API_BASE_URL}/api/workspaces/${workspaceId}/ssh/password`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ password }),
   });
   if (!response.ok) {
@@ -628,7 +651,7 @@ export async function setupSSHPassword(workspaceId: string, password: string): P
 export async function generateSSHKeyPair(workspaceId: string, keyType: "rsa" | "ed25519" = "ed25519"): Promise<GenerateSSHKeyResponse> {
   const response = await fetch(`${API_BASE_URL}/api/workspaces/${workspaceId}/ssh/generate`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ key_type: keyType }),
   });
   if (!response.ok) {
@@ -694,7 +717,7 @@ export interface AIAdvancedChatResponse {
 export async function advancedChatWithAI(request: AIAdvancedChatRequest): Promise<AIAdvancedChatResponse> {
   const response = await fetch(`${API_BASE_URL}/api/ai/advanced/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify(request),
   });
   if (!response.ok) {
@@ -751,7 +774,7 @@ export interface ImageAnalysisResponse {
 export async function analyzeImage(request: ImageAnalysisRequest): Promise<ImageAnalysisResponse> {
   const response = await fetch(`${API_BASE_URL}/api/ai/image/analyze`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify(request),
   });
   
@@ -788,7 +811,7 @@ export async function suggestContext(
 ): Promise<ContextSuggestResponse> {
   const response = await fetch(`${API_BASE_URL}/api/ai/context/suggest`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify({
       workspaceId,
       query,
@@ -874,7 +897,7 @@ export interface IDEHealthResponse {
 export async function createIDEContainer(request: CreateIDEContainerRequest): Promise<IDEContainerResponse> {
   const response = await fetch(`${API_BASE_URL}/api/ide/containers`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify(request),
   });
   
