@@ -143,7 +143,7 @@ async def signup(
     """회원가입"""
     # 이메일 중복 확인
     existing = await db.execute(
-        select(UserModel).where(UserModel.email == request.email)
+        select(UserModel).where(UserModel.email == login_request.email)
     )
     if existing.scalar_one_or_none():
         raise HTTPException(
@@ -169,11 +169,11 @@ async def signup(
     
     # 사용자 생성
     user_id = f"u_{secrets.token_urlsafe(8)}"
-    password_hash = password_service.hash_password(request.password)
+    password_hash = password_service.hash_password(login_request.password)
     
     user = UserModel(
         user_id=user_id,
-        email=request.email,
+        email=login_request.email,
         name=request.name,
         password_hash=password_hash,
         org_id=org.org_id,
@@ -183,7 +183,7 @@ async def signup(
     await db.flush()
     
     # JWT 토큰 생성
-    access_token = jwt_auth_service.create_access_token(user_id, request.email)
+    access_token = jwt_auth_service.create_access_token(user_id, login_request.email)
     
     # 세션 생성 (선택사항)
     session_token = secrets.token_urlsafe(32)
@@ -222,10 +222,10 @@ async def signup(
 )
 @limiter.limit("5/minute")  # slowapi: 분당 5회 제한
 async def login(
-    request: LoginWith2FARequest,
+    request: Request,
+    login_request: LoginWith2FARequest,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    http_request: Request = None,
 ):
     """
     로그인
@@ -234,15 +234,15 @@ async def login(
     - 2FA: 활성화된 경우 TOTP 코드 필수
     - Refresh Token: 응답에 포함
     """
-    ip_address = http_request.client.host if http_request else None
+    ip_address = request.client.host
     
     # Rate Limit 확인
     allowed, rate_limit_msg = await rate_limit_service.check_login_rate_limit(
-        request.email.lower(),
+        login_request.email.lower(),
         ip_address,
     )
     if not allowed:
-        logger.warning(f"Login rate limit exceeded: {request.email} from {ip_address}")
+        logger.warning(f"Login rate limit exceeded: {login_request.email} from {ip_address}")
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail={"error": rate_limit_msg, "code": "RATE_LIMITED"},
@@ -250,13 +250,13 @@ async def login(
     
     # 사용자 조회
     user = await db.execute(
-        select(UserModel).where(UserModel.email == request.email.lower())
+        select(UserModel).where(UserModel.email == login_request.email.lower())
     )
     user = user.scalar_one_or_none()
     
     if not user:
         # 실패 기록
-        await rate_limit_service.record_login_attempt(request.email.lower(), ip_address, success=False)
+        await rate_limit_service.record_login_attempt(login_request.email.lower(), ip_address, success=False)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"error": "Invalid email or password", "code": "INVALID_CREDENTIALS"},
@@ -264,8 +264,8 @@ async def login(
     
     # 비밀번호 검증
     if user.password_hash:
-        if not password_service.verify_password(request.password, user.password_hash):
-            await rate_limit_service.record_login_attempt(request.email.lower(), ip_address, success=False)
+        if not password_service.verify_password(login_request.password, user.password_hash):
+            await rate_limit_service.record_login_attempt(login_request.email.lower(), ip_address, success=False)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={"error": "Invalid email or password", "code": "INVALID_CREDENTIALS"},
@@ -274,7 +274,7 @@ async def login(
     # 2FA 검증 (활성화된 경우)
     # 참고: UserModel에 totp_secret, totp_enabled 필드 필요
     if hasattr(user, 'totp_enabled') and user.totp_enabled:
-        if not request.totp_code:
+        if not login_request.totp_code:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={"error": "2FA code required", "code": "2FA_REQUIRED"},
@@ -284,12 +284,12 @@ async def login(
         two_fa_service = get_2fa_service()
         verified, used_backup = two_fa_service.verify_2fa_login(
             user.totp_secret,
-            request.totp_code,
+            login_request.totp_code,
             user.backup_code_hashes if hasattr(user, 'backup_code_hashes') else None,
         )
         
         if not verified:
-            await rate_limit_service.record_login_attempt(request.email.lower(), ip_address, success=False)
+            await rate_limit_service.record_login_attempt(login_request.email.lower(), ip_address, success=False)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={"error": "Invalid 2FA code", "code": "INVALID_2FA"},
@@ -300,7 +300,7 @@ async def login(
             user.backup_code_hashes = [h for h in user.backup_code_hashes if h != used_backup]
     
     # 로그인 성공
-    await rate_limit_service.record_login_attempt(request.email.lower(), ip_address, success=True)
+    await rate_limit_service.record_login_attempt(login_request.email.lower(), ip_address, success=True)
     
     # 마지막 로그인 시간 업데이트
     user.last_login_at = datetime.utcnow()
@@ -309,7 +309,7 @@ async def login(
     tokens = jwt_auth_service.create_token_pair(user.user_id, user.email, user.role)
     
     # 세션 생성 (리프레시 토큰 저장용)
-    user_agent = http_request.headers.get("user-agent") if http_request else None
+    user_agent = request.headers.get("user-agent") if request else None
     
     session = UserSessionModel(
         user_id=user.user_id,
