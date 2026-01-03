@@ -134,6 +134,127 @@ export async function createFile(
 }
 
 // ============================================================
+// 파일 업로드/다운로드
+// ============================================================
+
+export interface UploadResult {
+  success: boolean;
+  uploadedFiles: Array<{ path: string; size: number }>;
+  errors: Array<{ file: string; error: string }>;
+  totalUploaded: number;
+  totalErrors: number;
+}
+
+export interface ZipUploadResult {
+  success: boolean;
+  extractedFiles: Array<{ path: string; size: number }>;
+  errors: Array<{ file: string; error: string }>;
+  totalExtracted: number;
+  totalErrors: number;
+}
+
+/**
+ * 파일 업로드 (단일 또는 다중)
+ */
+export async function uploadFiles(
+  workspaceId: string,
+  files: File[],
+  targetDir: string = "",
+  overwrite: boolean = false
+): Promise<UploadResult> {
+  const formData = new FormData();
+  
+  files.forEach((file) => {
+    formData.append("files", file);
+  });
+  
+  formData.append("target_dir", targetDir);
+  formData.append("overwrite", String(overwrite));
+  
+  const response = await fetch(
+    `${API_BASE_URL}/api/workspaces/${workspaceId}/files/upload`,
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to upload files: ${response.statusText}`);
+  }
+  
+  return response.json();
+}
+
+/**
+ * ZIP 파일 업로드 및 압축 해제
+ */
+export async function uploadZip(
+  workspaceId: string,
+  file: File,
+  targetDir: string = "",
+  overwrite: boolean = false
+): Promise<ZipUploadResult> {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("target_dir", targetDir);
+  formData.append("overwrite", String(overwrite));
+  
+  const response = await fetch(
+    `${API_BASE_URL}/api/workspaces/${workspaceId}/files/upload/zip`,
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to upload ZIP: ${response.statusText}`);
+  }
+  
+  return response.json();
+}
+
+/**
+ * 파일 다운로드
+ */
+export async function downloadFile(workspaceId: string, path: string): Promise<Blob> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/workspaces/${workspaceId}/files/download?path=${encodeURIComponent(path)}`
+  );
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to download file: ${response.statusText}`);
+  }
+  
+  return response.blob();
+}
+
+/**
+ * 파일/폴더 삭제
+ */
+export async function deleteFile(
+  workspaceId: string,
+  path: string,
+  recursive: boolean = false
+): Promise<{ success: boolean; path: string; message: string }> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/workspaces/${workspaceId}/files?path=${encodeURIComponent(path)}&recursive=${recursive}`,
+    { method: "DELETE" }
+  );
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to delete file: ${response.statusText}`);
+  }
+  
+  return response.json();
+}
+
+// ============================================================
 // AI
 // ============================================================
 
