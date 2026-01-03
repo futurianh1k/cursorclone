@@ -81,7 +81,6 @@ export async function cloneGitHubRepository(
 export async function deleteWorkspace(workspaceId: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/workspaces/${workspaceId}`, {
     headers: getAuthHeaders(),
-    headers: getAuthHeaders(),
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: response.statusText }));
