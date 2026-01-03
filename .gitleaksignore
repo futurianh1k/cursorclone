@@ -1,0 +1,13 @@
+# Gitleaks ignore file
+# https://github.com/gitleaks/gitleaks#gitleaksignore
+
+# 테스트용 시크릿 (실제 시크릿 아님)
+apps/api/tests/conftest.py
+apps/api/tests/test_auth_features.py
+
+# 문서 내 예시
+docs/**/*.md
+
+# 설정 예시 파일
+*.example
+.env.example

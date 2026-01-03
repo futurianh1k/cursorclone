@@ -1,0 +1,166 @@
+name: Performance Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'Target URL for load testing'
+        required: true
+        default: 'http://localhost:8000'
+      users:
+        description: 'Number of concurrent users'
+        required: true
+        default: '50'
+      duration:
+        description: 'Test duration (e.g., 1m, 5m, 10m)'
+        required: true
+        default: '1m'
+  schedule:
+    # 매주 일요일 자정 (UTC) 실행
+    - cron: '0 0 * * 0'
+
+jobs:
+  # ============================================================
+  # 1. API 벤치마크
+  # ============================================================
+  api-benchmark:
+    name: API Benchmark
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cursor_poc_test
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install locust pytest-benchmark httpx
+          cd apps/api && pip install -r requirements.txt
+
+      - name: Start API server
+        run: |
+          cd apps/api
+          uvicorn src.main:app --host 0.0.0.0 --port 8000 &
+          sleep 5
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/cursor_poc_test
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SECRET_KEY: test-secret-key
+          DEV_MODE: "true"
+
+      - name: Health check
+        run: |
+          curl -f http://localhost:8000/health || exit 1
+
+      - name: Run API benchmarks
+        run: |
+          cd apps/api
+          python -m pytest tests/ -v --benchmark-only --benchmark-json=benchmark.json || echo "No benchmarks found"
+        continue-on-error: true
+
+      - name: Run Locust load test (headless)
+        run: |
+          cd apps/api
+          locust -f tests/locustfile.py \
+            --headless \
+            --host=http://localhost:8000 \
+            --users=${{ inputs.users || 10 }} \
+            --spawn-rate=5 \
+            --run-time=${{ inputs.duration || '30s' }} \
+            --html=locust-report.html \
+            --csv=locust-results
+        continue-on-error: true
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            apps/api/benchmark.json
+            apps/api/locust-report.html
+            apps/api/locust-results*.csv
+          retention-days: 30
+        if: always()
+
+      - name: Performance summary
+        run: |
+          echo "## Performance Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f apps/api/locust-results_stats.csv ]; then
+            echo "### Locust Results" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            cat apps/api/locust-results_stats.csv | head -20 >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+        if: always()
+
+  # ============================================================
+  # 2. 프론트엔드 성능 테스트
+  # ============================================================
+  frontend-performance:
+    name: Frontend Performance (Lighthouse)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        run: |
+          cd apps/web
+          pnpm build
+
+      - name: Start frontend server
+        run: |
+          cd apps/web
+          pnpm start &
+          sleep 10
+
+      - name: Run Lighthouse
+        uses: treosh/lighthouse-ci-action@v10
+        with:
+          urls: |
+            http://localhost:3000
+            http://localhost:3000/login
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+        continue-on-error: true
+
+      - name: Performance summary
+        run: |
+          echo "## Lighthouse Results" >> $GITHUB_STEP_SUMMARY
+          echo "Check the artifacts for detailed reports." >> $GITHUB_STEP_SUMMARY
+        if: always()
