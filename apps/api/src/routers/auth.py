@@ -237,11 +237,11 @@ async def login(
     
     # Rate Limit 확인
     allowed, rate_limit_msg = await rate_limit_service.check_login_rate_limit(
-        request.email.lower(),
+        login_request.email.lower(),
         ip_address,
     )
     if not allowed:
-        logger.warning(f"Login rate limit exceeded: {request.email} from {ip_address}")
+        logger.warning(f"Login rate limit exceeded: {login_request.email} from {ip_address}")
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail={"error": rate_limit_msg, "code": "RATE_LIMITED"},
@@ -249,13 +249,13 @@ async def login(
     
     # 사용자 조회
     user = await db.execute(
-        select(UserModel).where(UserModel.email == request.email.lower())
+        select(UserModel).where(UserModel.email == login_request.email.lower())
     )
     user = user.scalar_one_or_none()
     
     if not user:
         # 실패 기록
-        await rate_limit_service.record_login_attempt(request.email.lower(), ip_address, success=False)
+        await rate_limit_service.record_login_attempt(login_request.email.lower(), ip_address, success=False)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"error": "Invalid email or password", "code": "INVALID_CREDENTIALS"},
@@ -264,7 +264,7 @@ async def login(
     # 비밀번호 검증
     if user.password_hash:
         if not password_service.verify_password(request.password, user.password_hash):
-            await rate_limit_service.record_login_attempt(request.email.lower(), ip_address, success=False)
+            await rate_limit_service.record_login_attempt(login_request.email.lower(), ip_address, success=False)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={"error": "Invalid email or password", "code": "INVALID_CREDENTIALS"},
@@ -288,7 +288,7 @@ async def login(
         )
         
         if not verified:
-            await rate_limit_service.record_login_attempt(request.email.lower(), ip_address, success=False)
+            await rate_limit_service.record_login_attempt(login_request.email.lower(), ip_address, success=False)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={"error": "Invalid 2FA code", "code": "INVALID_2FA"},
@@ -299,7 +299,7 @@ async def login(
             user.backup_code_hashes = [h for h in user.backup_code_hashes if h != used_backup]
     
     # 로그인 성공
-    await rate_limit_service.record_login_attempt(request.email.lower(), ip_address, success=True)
+    await rate_limit_service.record_login_attempt(login_request.email.lower(), ip_address, success=True)
     
     # 마지막 로그인 시간 업데이트
     user.last_login_at = datetime.utcnow()
