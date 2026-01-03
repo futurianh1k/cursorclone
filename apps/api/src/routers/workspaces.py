@@ -13,12 +13,14 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, status, Depends, Query
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from ..models import (
     CreateWorkspaceRequest,
     CloneGitHubRequest,
     WorkspaceResponse,
     ErrorResponse,
 )
+from ..db import WorkspaceModel
 from ..db import UserModel
 from ..utils.filesystem import (
     get_workspace_root,
