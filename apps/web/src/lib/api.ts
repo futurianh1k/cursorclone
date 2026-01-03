@@ -80,6 +80,7 @@ export async function cloneGitHubRepository(
 
 export async function deleteWorkspace(workspaceId: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/workspaces/${workspaceId}`, {
+    method: "DELETE",
     headers: getAuthHeaders(),
   });
   if (!response.ok) {
