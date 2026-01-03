@@ -20,6 +20,7 @@ from ..models import (
 from ..utils.filesystem import (
     get_workspace_root,
     create_workspace_directory,
+    delete_workspace_directory,
     workspace_exists,
 )
 
@@ -220,3 +221,83 @@ async def clone_github_repository(request: CloneGitHubRequest):
         name=workspace_name,
         rootPath=str(workspace_root),
     )
+
+
+@router.delete(
+    "/{workspace_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        401: {"model": ErrorResponse, "description": "Unauthorized"},
+        403: {"model": ErrorResponse, "description": "Forbidden"},
+        404: {"model": ErrorResponse, "description": "Workspace not found"},
+        500: {"model": ErrorResponse, "description": "Failed to delete workspace"},
+    },
+    summary="워크스페이스 삭제",
+    description="워크스페이스와 모든 관련 데이터를 완전히 삭제합니다.",
+)
+async def delete_workspace(workspace_id: str):
+    """
+    워크스페이스를 완전히 삭제합니다.
+
+    다음을 수행합니다:
+    1. 워크스페이스 존재 확인
+    2. 실행 중인 컨테이너 정리 (있는 경우)
+    3. 파일시스템에서 워크스페이스 디렉토리 삭제
+    4. 데이터베이스에서 메타데이터 삭제 (향후)
+
+    WARNING: 이 작업은 되돌릴 수 없습니다.
+    """
+    workspace_root = get_workspace_root(workspace_id)
+
+    # 워크스페이스 존재 확인
+    if not workspace_exists(workspace_root):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "Workspace not found",
+                "code": "WS_NOT_FOUND",
+            },
+        )
+
+    # TODO: 권한 확인 (사용자가 이 워크스페이스의 소유자인지)
+    # if not has_permission(current_user, workspace_id):
+    #     raise HTTPException(status_code=403, detail="Forbidden")
+
+    # TODO: 실행 중인 컨테이너 정리
+    # from ..services.workspace_manager import get_workspace_manager
+    # manager = get_workspace_manager()
+    # try:
+    #     await manager.remove_container(workspace_id, force=True)
+    # except Exception as e:
+    #     # 컨테이너가 없거나 이미 삭제된 경우 무시
+    #     pass
+
+    # 워크스페이스 디렉토리 삭제
+    try:
+        delete_workspace_directory(workspace_root)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "Invalid workspace path",
+                "code": "INVALID_PATH",
+                "detail": str(e),
+            },
+        )
+    except OSError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "Failed to delete workspace",
+                "code": "WS_DELETE_FAILED",
+                "detail": str(e),
+            },
+        )
+
+    # TODO: 데이터베이스에서 메타데이터 삭제
+    # from ..services.workspace_service import WorkspaceService
+    # service = WorkspaceService(db)
+    # await service.hard_delete_workspace(workspace_id)
+
+    # 204 No Content 응답
+    return None

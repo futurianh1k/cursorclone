@@ -59,6 +59,19 @@ export async function cloneGitHubRepository(
   return response.json();
 }
 
+export async function deleteWorkspace(workspaceId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/workspaces/${workspaceId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(
+      error.detail?.error || `Failed to delete workspace: ${response.statusText}`
+    );
+  }
+  // 204 No Content - 응답 본문 없음
+}
+
 // ============================================================
 // Files
 // ============================================================

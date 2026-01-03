@@ -6,7 +6,7 @@ import FileTree from "@/components/FileTree";
 import CodeEditor from "@/components/CodeEditor";
 import AIChat from "@/components/AIChat";
 import WorkspaceSelector from "@/components/WorkspaceSelector";
-import { listWorkspaces, Workspace } from "@/lib/api";
+import { listWorkspaces, deleteWorkspace, Workspace } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth-api";
 
 export default function Home() {
@@ -67,6 +67,37 @@ export default function Home() {
     setShowSelector(false);
   };
 
+  const handleDeleteWorkspace = async (wsId: string) => {
+    if (!confirm(`워크스페이스 "${wsId}"를 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없으며, 모든 파일이 영구적으로 삭제됩니다.`)) {
+      return;
+    }
+
+    try {
+      await deleteWorkspace(wsId);
+
+      // 삭제된 워크스페이스를 목록에서 제거
+      const updatedWorkspaces = workspaces.filter(ws => ws.workspaceId !== wsId);
+      setWorkspaces(updatedWorkspaces);
+
+      // 현재 선택된 워크스페이스가 삭제된 경우
+      if (workspaceId === wsId) {
+        if (updatedWorkspaces.length > 0) {
+          setWorkspaceId(updatedWorkspaces[0].workspaceId);
+        } else {
+          setWorkspaceId("");
+          setShowSelector(true);
+        }
+        setCurrentFile(undefined);
+        setSelection(null);
+      }
+
+      alert("워크스페이스가 성공적으로 삭제되었습니다.");
+    } catch (error) {
+      console.error("Failed to delete workspace:", error);
+      alert(`워크스페이스 삭제 실패: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  };
+
   if (loading) {
     return (
       <div
@@ -113,27 +144,46 @@ export default function Home() {
               +
             </button>
           </div>
-          <select
-            value={workspaceId}
-            onChange={(e) => {
-              setWorkspaceId(e.target.value);
-              setCurrentFile(undefined);
-              setSelection(null);
-            }}
-            style={{
-              width: "100%",
-              padding: "4px 8px",
-              fontSize: "12px",
-              border: "1px solid #ddd",
-              borderRadius: "4px",
-            }}
-          >
-            {workspaces.map((ws) => (
-              <option key={ws.workspaceId} value={ws.workspaceId}>
-                {ws.name}
-              </option>
-            ))}
-          </select>
+          <div style={{ display: "flex", gap: "4px" }}>
+            <select
+              value={workspaceId}
+              onChange={(e) => {
+                setWorkspaceId(e.target.value);
+                setCurrentFile(undefined);
+                setSelection(null);
+              }}
+              style={{
+                flex: 1,
+                padding: "4px 8px",
+                fontSize: "12px",
+                border: "1px solid #ddd",
+                borderRadius: "4px",
+              }}
+            >
+              {workspaces.map((ws) => (
+                <option key={ws.workspaceId} value={ws.workspaceId}>
+                  {ws.name}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => handleDeleteWorkspace(workspaceId)}
+              disabled={!workspaceId}
+              title="워크스페이스 삭제"
+              style={{
+                padding: "4px 8px",
+                fontSize: "12px",
+                backgroundColor: "#dc2626",
+                color: "white",
+                border: "none",
+                borderRadius: "4px",
+                cursor: workspaceId ? "pointer" : "not-allowed",
+                opacity: workspaceId ? 1 : 0.5,
+              }}
+            >
+              🗑️
+            </button>
+          </div>
         </div>
         <div style={{ flex: 1, overflow: "hidden" }}>
           <FileTree workspaceId={workspaceId} onFileSelect={handleFileSelect} />
