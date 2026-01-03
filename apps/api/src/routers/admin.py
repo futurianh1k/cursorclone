@@ -1,6 +1,10 @@
 """
 관리자 API 라우터
 인프라 서버 관리 및 워크스페이스 배치
+
+RBAC 권한:
+- admin: 모든 관리 기능
+- manager: 서버 조회만 가능
 """
 
 from uuid import UUID
@@ -17,22 +21,20 @@ from ..models import (
     ServerStatus,
     AuthType,
 )
-from ..db import get_db, InfrastructureServerModel, ServerCredentialModel
+from ..db import get_db, InfrastructureServerModel, ServerCredentialModel, UserModel
 from ..services.auth_service import (
     ssh_auth_service,
     mtls_auth_service,
     api_key_auth_service,
 )
 from ..services.placement_service import PlacementService
+from ..services.rbac_service import (
+    require_permission,
+    require_admin,
+    Permission,
+)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
-
-
-def get_admin_user():
-    """관리자 권한 확인 (임시 구현)"""
-    # TODO: 실제 인증 및 권한 확인 구현
-    # 현재는 더미 구현
-    return {"user_id": "admin", "role": "admin"}
 
 
 @router.post(
@@ -50,7 +52,7 @@ def get_admin_user():
 async def register_server(
     request: RegisterServerRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_admin_user),
+    current_user: UserModel = Depends(require_permission(Permission.SERVER_MANAGE)),
 ):
     """
     인프라 서버 등록
@@ -190,7 +192,7 @@ async def register_server(
 async def list_servers(
     status_filter: Optional[ServerStatus] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_admin_user),
+    current_user: UserModel = Depends(require_permission(Permission.ADMIN_READ)),
 ):
     """서버 목록 조회"""
     from sqlalchemy import select
@@ -235,7 +237,7 @@ async def list_servers(
 async def test_server_connection(
     server_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_admin_user),
+    current_user: UserModel = Depends(require_permission(Permission.SERVER_MANAGE)),
 ):
     """서버 연결 테스트"""
     from sqlalchemy import select
@@ -277,7 +279,7 @@ async def place_workspace(
     workspace_id: str,
     request: PlacementRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_admin_user),
+    current_user: UserModel = Depends(require_permission(Permission.SERVER_MANAGE)),
 ):
     """워크스페이스 배치"""
     placement_service = PlacementService(db)
