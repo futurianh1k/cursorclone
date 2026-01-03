@@ -55,6 +55,13 @@ class UserModel(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     last_login_at = Column(DateTime(timezone=True))
     
+    # 2FA 관련 필드
+    totp_enabled = Column(Boolean, default=False)  # 2FA 활성화 여부
+    totp_secret = Column(Text)  # TOTP 시크릿 (암호화됨)
+    totp_secret_pending = Column(Text)  # 설정 중인 시크릿 (확인 전)
+    backup_code_hashes = Column(JSONB)  # 백업 코드 해시 목록
+    backup_code_hashes_pending = Column(JSONB)  # 설정 중인 백업 코드 해시
+    
     # 관계
     organization = relationship("OrganizationModel", back_populates="users")
     workspaces = relationship("WorkspaceModel", back_populates="owner")
