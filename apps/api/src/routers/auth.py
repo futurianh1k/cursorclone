@@ -169,7 +169,7 @@ async def signup(
     
     # 사용자 생성
     user_id = f"u_{secrets.token_urlsafe(8)}"
-    password_hash = password_service.hash_password(login_request.password)
+    password_hash = password_service.hash_password(request.password)
     
     user = UserModel(
         user_id=user_id,
