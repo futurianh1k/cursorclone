@@ -19,6 +19,7 @@ from ..models import (
     WorkspaceResponse,
     ErrorResponse,
 )
+from ..db import UserModel
 from ..utils.filesystem import (
     get_workspace_root,
     create_workspace_directory,
@@ -28,6 +29,7 @@ from ..utils.filesystem import (
 from ..db.connection import get_db
 from ..services.workspace_service import WorkspaceService
 from ..services.workspace_manager import WorkspaceManager
+from ..services.rbac_service import require_permission, Permission
 
 router = APIRouter(prefix="/api/workspaces", tags=["workspaces"])
 logger = logging.getLogger(__name__)
