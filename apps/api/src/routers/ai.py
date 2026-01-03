@@ -1270,3 +1270,452 @@ async def get_available_modes():
         ],
         "current": "ask",  # 기본 모드
     }
+
+
+# ============================================================
+# Advanced AI Chat with Context & Image (Cursor-like)
+# ============================================================
+
+from fastapi import UploadFile, File, Form
+from ..models import (
+    ContextType,
+    ContextItem,
+    AIAdvancedChatRequest,
+    AIAdvancedChatResponse,
+    ImageUploadResponse,
+    ImageAnalysisRequest,
+    ImageAnalysisResponse,
+    ContextSuggestRequest,
+    ContextSuggestion,
+    ContextSuggestResponse,
+)
+import os
+import uuid
+import base64
+from pathlib import Path
+
+# 이미지 저장 경로
+IMAGE_UPLOAD_DIR = Path(os.getenv("IMAGE_UPLOAD_DIR", "/tmp/ai_images"))
+IMAGE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+# 허용된 이미지 형식
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
+
+
+@router.post(
+    "/image/upload",
+    response_model=ImageUploadResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Invalid image"},
+        413: {"model": ErrorResponse, "description": "Image too large"},
+    },
+    summary="이미지 업로드",
+    description="AI 분석을 위한 이미지를 업로드합니다.",
+)
+async def upload_image(
+    file: UploadFile = File(..., description="업로드할 이미지 파일"),
+):
+    """
+    이미지 업로드
+    
+    - 스크린샷, 에러 화면, UI 디자인 등을 업로드
+    - AI가 이미지를 분석하여 코드 작성에 활용
+    """
+    # MIME 타입 검증
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": f"Invalid image type. Allowed: {', '.join(ALLOWED_IMAGE_TYPES)}", "code": "INVALID_IMAGE_TYPE"},
+        )
+    
+    # 파일 크기 확인
+    content = await file.read()
+    if len(content) > MAX_IMAGE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail={"error": f"Image too large. Max size: {MAX_IMAGE_SIZE // 1024 // 1024}MB", "code": "IMAGE_TOO_LARGE"},
+        )
+    
+    # 고유 ID 생성
+    image_id = str(uuid.uuid4())
+    ext = file.content_type.split("/")[-1]
+    if ext == "jpeg":
+        ext = "jpg"
+    
+    # 파일 저장
+    file_path = IMAGE_UPLOAD_DIR / f"{image_id}.{ext}"
+    with open(file_path, "wb") as f:
+        f.write(content)
+    
+    # 이미지 크기 정보 (PIL 없이 기본값 사용)
+    width, height = None, None
+    try:
+        # PIL이 있으면 사용
+        from PIL import Image
+        with Image.open(file_path) as img:
+            width, height = img.size
+    except ImportError:
+        pass
+    
+    # 상대 URL 생성
+    image_url = f"/api/ai/image/{image_id}.{ext}"
+    
+    return ImageUploadResponse(
+        image_id=image_id,
+        image_url=image_url,
+        thumbnail_url=image_url,  # 썸네일 생성 미구현
+        mime_type=file.content_type,
+        size=len(content),
+        width=width,
+        height=height,
+    )
+
+
+@router.get(
+    "/image/{image_filename}",
+    summary="이미지 조회",
+    description="업로드된 이미지를 반환합니다.",
+)
+async def get_image(image_filename: str):
+    """업로드된 이미지 조회"""
+    from fastapi.responses import FileResponse
+    
+    # 경로 탈출 방지
+    if ".." in image_filename or "/" in image_filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "Invalid filename", "code": "INVALID_PATH"},
+        )
+    
+    file_path = IMAGE_UPLOAD_DIR / image_filename
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "Image not found", "code": "IMAGE_NOT_FOUND"},
+        )
+    
+    return FileResponse(file_path)
+
+
+@router.post(
+    "/image/analyze",
+    response_model=ImageAnalysisResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Invalid request"},
+        404: {"model": ErrorResponse, "description": "Image not found"},
+    },
+    summary="이미지 분석",
+    description="업로드된 이미지를 AI로 분석합니다.",
+)
+async def analyze_image(request: ImageAnalysisRequest):
+    """
+    이미지 분석
+    
+    - 스크린샷에서 에러 메시지 추출
+    - UI 디자인에서 코드 생성
+    - 다이어그램 해석
+    
+    TODO: Vision LLM 연동 (GPT-4V, LLaVA 등)
+    """
+    # 개발 모드 Mock 응답
+    dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+    
+    if dev_mode:
+        question = request.question or "이미지를 분석해주세요."
+        return ImageAnalysisResponse(
+            description=f"""## 이미지 분석 결과 (개발 모드)
+
+**질문**: {question}
+
+이 응답은 개발 모드에서 생성된 Mock 응답입니다.
+
+실제 이미지 분석을 위해서는 Vision LLM (GPT-4V, LLaVA 등)을 연결해주세요.
+
+**지원 예정 기능**:
+- 스크린샷에서 에러 메시지 추출 (OCR)
+- UI 디자인에서 코드 생성
+- 다이어그램/플로우차트 해석
+- 코드 스니펫 추출
+""",
+            extracted_text="[개발 모드] OCR 텍스트 추출이 비활성화되어 있습니다.",
+            code_blocks=["# 개발 모드에서는 코드 추출이 지원되지 않습니다."],
+        )
+    
+    # TODO: 실제 Vision LLM 연동
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail={"error": "Vision LLM not implemented yet", "code": "NOT_IMPLEMENTED"},
+    )
+
+
+@router.post(
+    "/context/suggest",
+    response_model=ContextSuggestResponse,
+    summary="컨텍스트 제안",
+    description="입력에 따라 관련 파일/코드를 제안합니다.",
+)
+async def suggest_context(request: ContextSuggestRequest):
+    """
+    컨텍스트 제안 (@ 입력 시)
+    
+    사용자가 "@"를 입력하면 관련 파일, 폴더, 심볼을 제안합니다.
+    """
+    import os
+    from pathlib import Path
+    
+    workspace_root = Path(f"/workspaces/{request.workspace_id}")
+    query = request.query.lower()
+    suggestions = []
+    
+    # 파일 검색
+    if not workspace_root.exists():
+        return ContextSuggestResponse(suggestions=[], total=0)
+    
+    try:
+        for root, dirs, files in os.walk(workspace_root):
+            # 숨김 폴더 제외
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            
+            rel_root = Path(root).relative_to(workspace_root)
+            
+            # 폴더 검색
+            if not request.types or ContextType.FOLDER in request.types:
+                for d in dirs:
+                    if query in d.lower():
+                        path = str(rel_root / d)
+                        suggestions.append(ContextSuggestion(
+                            type=ContextType.FOLDER,
+                            path=path,
+                            name=d,
+                            preview=f"📁 {path}",
+                            relevance=0.8 if d.lower().startswith(query) else 0.5,
+                        ))
+            
+            # 파일 검색
+            if not request.types or ContextType.FILE in request.types:
+                for f in files:
+                    if query in f.lower():
+                        path = str(rel_root / f)
+                        suggestions.append(ContextSuggestion(
+                            type=ContextType.FILE,
+                            path=path,
+                            name=f,
+                            preview=f"📄 {path}",
+                            relevance=0.9 if f.lower().startswith(query) else 0.6,
+                        ))
+            
+            # 너무 많이 탐색하지 않도록 제한
+            if len(suggestions) >= request.limit * 2:
+                break
+    except Exception:
+        pass
+    
+    # 관련도순 정렬 및 제한
+    suggestions.sort(key=lambda x: x.relevance, reverse=True)
+    suggestions = suggestions[:request.limit]
+    
+    return ContextSuggestResponse(suggestions=suggestions, total=len(suggestions))
+
+
+@router.post(
+    "/advanced/chat",
+    response_model=AIAdvancedChatResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Invalid request"},
+        503: {"model": ErrorResponse, "description": "LLM service unavailable"},
+    },
+    summary="고급 AI 채팅 (Cursor 스타일)",
+    description="여러 컨텍스트, 이미지를 포함한 AI 채팅입니다.",
+)
+async def advanced_chat(request: AIAdvancedChatRequest):
+    """
+    고급 AI 채팅
+    
+    - 여러 파일/폴더를 컨텍스트로 추가
+    - 이미지 첨부
+    - 클립보드 텍스트/이미지
+    - Agent/Plan/Debug/Ask 모드 지원
+    """
+    import os
+    dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+    
+    # 컨텍스트 조합
+    context_parts = []
+    
+    # 현재 열린 파일
+    if request.current_file and request.current_content:
+        context_parts.append(f"**현재 파일 ({request.current_file})**:\n```\n{request.current_content[:2000]}\n```")
+        if request.current_selection:
+            lines = request.current_content.split("\n")
+            selected = "\n".join(lines[request.current_selection.start_line - 1:request.current_selection.end_line])
+            context_parts.append(f"**선택된 코드 (L{request.current_selection.start_line}-{request.current_selection.end_line})**:\n```\n{selected}\n```")
+    
+    # 추가 컨텍스트
+    if request.contexts:
+        for ctx in request.contexts:
+            if ctx.type == ContextType.FILE and ctx.content:
+                context_parts.append(f"**파일 ({ctx.path or ctx.name})**:\n```\n{ctx.content[:1500]}\n```")
+            elif ctx.type == ContextType.IMAGE:
+                if ctx.image_url:
+                    context_parts.append(f"**이미지**: {ctx.image_url}")
+                elif ctx.image_base64:
+                    context_parts.append(f"**이미지 (Base64)**: [이미지 첨부됨]")
+            elif ctx.type == ContextType.CLIPBOARD and ctx.content:
+                context_parts.append(f"**클립보드**:\n```\n{ctx.content[:1000]}\n```")
+            elif ctx.type == ContextType.SELECTION and ctx.content:
+                context_parts.append(f"**선택 영역**:\n```\n{ctx.content[:1000]}\n```")
+    
+    full_context = "\n\n".join(context_parts) if context_parts else ""
+    
+    # 모드별 처리
+    if dev_mode:
+        if request.mode == AIMode.PLAN:
+            return AIAdvancedChatResponse(
+                response=f"""## 작업 계획 (개발 모드)
+
+**목표**: {request.message}
+
+{f'**컨텍스트**:{chr(10)}{full_context[:500]}...' if full_context else ''}
+
+### 실행 계획:
+1. 요구사항 분석
+2. 설계 검토
+3. 구현
+4. 테스트
+5. 배포
+
+*이 응답은 개발 모드에서 생성되었습니다. 실제 AI 분석을 위해 vLLM을 연결하세요.*
+""",
+                mode=AIMode.PLAN,
+                tokens_used=0,
+                plan_steps=[
+                    TaskStep(step_number=1, description="요구사항 분석", status="pending"),
+                    TaskStep(step_number=2, description="설계 검토", status="pending"),
+                    TaskStep(step_number=3, description="구현", status="pending"),
+                    TaskStep(step_number=4, description="테스트", status="pending"),
+                    TaskStep(step_number=5, description="배포", status="pending"),
+                ],
+            )
+        elif request.mode == AIMode.AGENT:
+            return AIAdvancedChatResponse(
+                response=f"""## 코드 변경 제안 (개발 모드)
+
+**요청**: {request.message}
+
+{f'**참조한 컨텍스트**: {len(request.contexts or [])}개' if request.contexts else ''}
+
+### 변경 사항:
+아래는 개발 모드 Mock 응답입니다.
+
+*실제 코드 생성을 위해 vLLM을 연결하세요.*
+""",
+                mode=AIMode.AGENT,
+                tokens_used=0,
+                file_changes=[
+                    FileChange(
+                        file_path=request.current_file or "example.py",
+                        action="modify",
+                        content="# Agent 모드 (개발)\n# 실제 변경 사항은 vLLM 연결 후 생성됩니다.",
+                        diff="@@ -1 +1,2 @@\n+# Agent 모드 예시",
+                    )
+                ],
+            )
+        elif request.mode == AIMode.DEBUG:
+            return AIAdvancedChatResponse(
+                response=f"""## 디버그 분석 (개발 모드)
+
+**문제**: {request.message}
+
+### 분석:
+개발 모드에서는 제한적인 분석만 가능합니다.
+
+### 제안:
+1. 에러 로그 확인
+2. 관련 코드 검토
+3. vLLM 연결 후 상세 분석
+
+*실제 디버깅을 위해 vLLM을 연결하세요.*
+""",
+                mode=AIMode.DEBUG,
+                tokens_used=0,
+                bug_fixes=[
+                    BugFix(
+                        filePath=request.current_file or "unknown.py",
+                        lineNumber=None,
+                        originalCode="",
+                        fixedCode="# 수정 코드는 vLLM 연결 후 생성됩니다",
+                        explanation="개발 모드에서는 실제 버그 수정이 생성되지 않습니다.",
+                    )
+                ],
+            )
+        else:  # ASK 모드
+            return AIAdvancedChatResponse(
+                response=f"""## 답변 (개발 모드)
+
+**질문**: {request.message}
+
+{f'**컨텍스트**: {len(request.contexts or [])}개 항목 참조' if request.contexts else ''}
+
+### 응답:
+개발 모드에서 생성된 Mock 응답입니다.
+
+{f'현재 파일: `{request.current_file}`' if request.current_file else ''}
+
+실제 AI 답변을 위해 vLLM 서버를 연결해주세요.
+
+*VLLM_BASE_URL 환경변수를 설정하고 DEV_MODE=false로 변경하세요.*
+""",
+                mode=AIMode.ASK,
+                tokens_used=0,
+            )
+    
+    # 실제 LLM 호출 (비개발 모드)
+    try:
+        llm_client = get_llm_client()
+        
+        # 시스템 프롬프트 선택
+        mode_prompts = {
+            AIMode.ASK: "You are a helpful coding assistant. Answer questions about code clearly and concisely.",
+            AIMode.AGENT: "You are a coding agent. Analyze the code and suggest specific changes. Provide full code for modifications.",
+            AIMode.PLAN: "You are a project planner. Break down the task into clear, actionable steps.",
+            AIMode.DEBUG: "You are a debugging expert. Analyze errors and suggest specific fixes.",
+        }
+        
+        system_prompt = mode_prompts.get(request.mode, mode_prompts[AIMode.ASK])
+        
+        # 메시지 구성
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # 히스토리 추가
+        if request.history:
+            for msg in request.history[-10:]:  # 최근 10개
+                messages.append({"role": msg.role, "content": msg.content})
+        
+        # 컨텍스트 + 사용자 메시지
+        user_message = request.message
+        if full_context:
+            user_message = f"{full_context}\n\n---\n\n**사용자 요청**: {request.message}"
+        
+        messages.append({"role": "user", "content": user_message})
+        
+        # LLM 호출
+        response = await llm_client.chat(messages=messages)
+        
+        return AIAdvancedChatResponse(
+            response=response.content,
+            mode=request.mode,
+            tokens_used=response.usage.total_tokens if response.usage else 0,
+        )
+        
+    except (LLMTimeoutError, LLMError) as e:
+        return AIAdvancedChatResponse(
+            response=f"⚠️ LLM 연결 실패: {str(e)}\n\nvLLM 서버 상태를 확인해주세요.",
+            mode=request.mode,
+            tokens_used=0,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": str(e), "code": "INTERNAL_ERROR"},
+        )

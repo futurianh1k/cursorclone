@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect } from "react";
 import { rewriteCode, validatePatch, applyPatch, chatWithAI, AIRewriteRequest, AIChatRequest } from "@/lib/api";
 import { createPlan, runAgent, debugCode, AIPlanRequest, AIAgentRequest, AIDebugRequest } from "@/lib/api";
+import { AIAdvancedChatResponse } from "@/lib/api";
+import AIInputPanel from "./AIInputPanel";
 
 interface AIChatProps {
   workspaceId: string;
@@ -336,6 +338,58 @@ export default function AIChat({
   };
 
   // ============================================================
+  // Advanced Response Handler (from AIInputPanel)
+  // ============================================================
+  const handleAdvancedResponse = (response: AIAdvancedChatResponse) => {
+    // 모드에 따라 메시지 포맷팅
+    let content = response.response;
+    const newMode = response.mode as AIMode;
+    
+    // Plan 모드 응답
+    if (response.planSteps && response.planSteps.length > 0) {
+      content += "\n\n### 📋 실행 단계\n";
+      response.planSteps.forEach((step) => {
+        content += `\n${step.stepNumber}. ${step.description}`;
+        if (step.filePath) content += ` (📄 ${step.filePath})`;
+      });
+    }
+    
+    // Agent 모드 응답
+    if (response.fileChanges && response.fileChanges.length > 0) {
+      content += `\n\n### 🤖 파일 변경 (${response.fileChanges.length}개)\n`;
+      response.fileChanges.forEach((change, i) => {
+        content += `\n**${i + 1}. ${change.filePath}** (${change.action})`;
+        if (change.diff) {
+          content += `\n\`\`\`diff\n${change.diff}\n\`\`\``;
+          // 첫 번째 diff 저장
+          if (i === 0) setDiff(change.diff);
+        }
+      });
+    }
+    
+    // Debug 모드 응답
+    if (response.bugFixes && response.bugFixes.length > 0) {
+      content += `\n\n### 🐛 버그 수정 (${response.bugFixes.length}개)\n`;
+      response.bugFixes.forEach((fix, i) => {
+        content += `\n**${i + 1}. ${fix.filePath}**`;
+        if (fix.lineNumber) content += ` (line ${fix.lineNumber})`;
+        content += `\n${fix.explanation}`;
+        if (fix.originalCode && fix.fixedCode) {
+          content += `\n\`\`\`diff\n- ${fix.originalCode}\n+ ${fix.fixedCode}\n\`\`\``;
+        }
+      });
+    }
+    
+    setMessages((prev) => [
+      ...prev,
+      { role: "assistant", content, type: newMode },
+    ]);
+    
+    // 모드 업데이트
+    setMode(newMode);
+  };
+
+  // ============================================================
   // Patch Application
   // ============================================================
   const handleApplyPatch = async () => {
@@ -529,94 +583,18 @@ export default function AIChat({
       </div>
 
       {/* 입력 영역 - 하단 고정 */}
-      <div style={{ flexShrink: 0, padding: "12px", borderTop: "1px solid #eee", backgroundColor: "#fafafa" }}>
-        {!diff ? (
-          <div>
-            {/* Rewrite 모드 토글 (Agent 모드에서 코드 수정 시) */}
-            {showRewrite && currentFile && selection && (
-              <div style={{ 
-                marginBottom: "8px", 
-                padding: "8px", 
-                backgroundColor: "#fff3cd", 
-                borderRadius: "6px",
-                fontSize: "12px",
-              }}>
-                💡 코드 수정을 원하시나요?{" "}
-                <button
-                  onClick={() => { setShowRewrite(false); handleRewrite(); }}
-                  style={{
-                    padding: "2px 8px",
-                    backgroundColor: "#007acc",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "4px",
-                    cursor: "pointer",
-                    fontSize: "11px",
-                  }}
-                >
-                  Rewrite 실행
-                </button>
-              </div>
-            )}
-            
-            <textarea
-              value={instruction}
-              onChange={(e) => setInstruction(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSubmit();
-                }
-              }}
-              placeholder={getPlaceholder()}
-              style={{
-                width: "100%",
-                minHeight: mode === "debug" ? "80px" : "60px",
-                padding: "10px",
-                fontSize: "13px",
-                border: `2px solid ${MODE_INFO[mode].color}20`,
-                borderRadius: "8px",
-                resize: "none",
-                fontFamily: "inherit",
-                boxSizing: "border-box",
-                outline: "none",
-              }}
-              disabled={loading}
-            />
-            <button
-              onClick={handleSubmit}
-              disabled={loading || !instruction.trim()}
-              style={{
-                marginTop: "8px",
-                padding: "10px 16px",
-                fontSize: "13px",
-                backgroundColor: (loading || !instruction.trim()) ? "#ccc" : MODE_INFO[mode].color,
-                color: "white",
-                border: "none",
-                borderRadius: "8px",
-                cursor: (loading || !instruction.trim()) ? "not-allowed" : "pointer",
-                width: "100%",
-                fontWeight: 500,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "6px",
-              }}
-            >
-              {loading ? "⏳ 처리 중..." : (
-                <>
-                  <span>{MODE_INFO[mode].icon}</span>
-                  <span>
-                    {mode === "ask" && "질문하기"}
-                    {mode === "plan" && "계획 생성"}
-                    {mode === "agent" && "실행하기"}
-                    {mode === "debug" && "분석하기"}
-                  </span>
-                </>
-              )}
-            </button>
-          </div>
-        ) : (
+      {!diff ? (
+        <AIInputPanel
+          workspaceId={workspaceId}
+          currentFile={currentFile}
+          fileContent={fileContent}
+          selection={selection}
+          disabled={loading || applying}
+          onResponse={handleAdvancedResponse}
+          onError={(err) => setError(err)}
+        />
+      ) : (
+        <div style={{ flexShrink: 0, padding: "12px", borderTop: "1px solid #eee", backgroundColor: "#fafafa" }}>
           <div>
             <div style={{ fontSize: "12px", fontWeight: "bold", marginBottom: "8px" }}>
               📝 Diff Preview
@@ -671,24 +649,24 @@ export default function AIChat({
               </button>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {error && (
-          <div
-            style={{
-              marginTop: "12px",
-              padding: "8px",
-              fontSize: "12px",
-              color: "#d32f2f",
-              backgroundColor: "#ffebee",
-              border: "1px solid #ffcdd2",
-              borderRadius: "4px",
-            }}
-          >
-            ⚠️ {error}
-          </div>
-        )}
-      </div>
+      {error && (
+        <div
+          style={{
+            padding: "12px",
+            fontSize: "12px",
+            color: "#d32f2f",
+            backgroundColor: "#ffebee",
+            border: "1px solid #ffcdd2",
+            borderRadius: "4px",
+            margin: "0 12px 12px",
+          }}
+        >
+          ⚠️ {error}
+        </div>
+      )}
     </div>
   );
 }

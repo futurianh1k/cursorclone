@@ -557,3 +557,130 @@ class PlacementRequest(BaseModel):
     
     class Config:
         populate_by_name = True
+
+
+# ============================================================
+# AI Context & Image (Cursor-like features)
+# ============================================================
+
+class ContextType(str, Enum):
+    """컨텍스트 타입"""
+    FILE = "file"           # 전체 파일
+    SELECTION = "selection" # 코드 선택 영역
+    FOLDER = "folder"       # 폴더 전체
+    IMAGE = "image"         # 이미지
+    URL = "url"             # 웹 페이지 URL
+    CLIPBOARD = "clipboard" # 클립보드 내용
+
+
+class ContextItem(BaseModel):
+    """추가된 컨텍스트 아이템"""
+    type: ContextType
+    path: Optional[str] = Field(default=None, description="파일/폴더 경로")
+    content: Optional[str] = Field(default=None, description="텍스트 내용")
+    selection: Optional[SelectionRange] = Field(default=None, description="선택 영역")
+    image_url: Optional[str] = Field(default=None, alias="imageUrl", description="업로드된 이미지 URL")
+    image_base64: Optional[str] = Field(default=None, alias="imageBase64", description="Base64 인코딩된 이미지")
+    mime_type: Optional[str] = Field(default=None, alias="mimeType", description="이미지 MIME 타입")
+    name: Optional[str] = Field(default=None, description="표시용 이름")
+    
+    class Config:
+        populate_by_name = True
+
+
+class AIAdvancedChatRequest(BaseModel):
+    """고급 AI 채팅 요청 (Cursor 스타일)"""
+    workspace_id: str = Field(..., alias="workspaceId")
+    message: str = Field(..., min_length=1, description="사용자 질문 또는 지시")
+    mode: AIMode = Field(default=AIMode.ASK, description="AI 모드")
+    contexts: Optional[List[ContextItem]] = Field(default=None, description="추가 컨텍스트 목록")
+    history: Optional[List[ChatMessage]] = Field(default=None, description="이전 대화 히스토리")
+    # 현재 열린 파일 (기본 컨텍스트)
+    current_file: Optional[str] = Field(default=None, alias="currentFile")
+    current_content: Optional[str] = Field(default=None, alias="currentContent")
+    current_selection: Optional[SelectionRange] = Field(default=None, alias="currentSelection")
+    
+    class Config:
+        populate_by_name = True
+
+
+class AIAdvancedChatResponse(BaseModel):
+    """고급 AI 채팅 응답"""
+    response: str = Field(..., description="AI 응답")
+    mode: AIMode = Field(..., description="사용된 AI 모드")
+    tokens_used: int = Field(default=0, alias="tokensUsed")
+    # 모드별 추가 데이터
+    plan_steps: Optional[List[TaskStep]] = Field(default=None, alias="planSteps", description="Plan 모드: 작업 단계")
+    file_changes: Optional[List[FileChange]] = Field(default=None, alias="fileChanges", description="Agent 모드: 파일 변경")
+    bug_fixes: Optional[List[BugFix]] = Field(default=None, alias="bugFixes", description="Debug 모드: 버그 수정")
+    suggested_action: Optional[str] = Field(default=None, alias="suggestedAction")
+    
+    class Config:
+        populate_by_name = True
+
+
+class ImageUploadResponse(BaseModel):
+    """이미지 업로드 응답"""
+    image_id: str = Field(..., alias="imageId")
+    image_url: str = Field(..., alias="imageUrl")
+    thumbnail_url: Optional[str] = Field(default=None, alias="thumbnailUrl")
+    mime_type: str = Field(..., alias="mimeType")
+    size: int
+    width: Optional[int] = None
+    height: Optional[int] = None
+    
+    class Config:
+        populate_by_name = True
+
+
+class ImageAnalysisRequest(BaseModel):
+    """이미지 분석 요청"""
+    workspace_id: str = Field(..., alias="workspaceId")
+    image_url: Optional[str] = Field(default=None, alias="imageUrl")
+    image_base64: Optional[str] = Field(default=None, alias="imageBase64")
+    question: Optional[str] = Field(default=None, description="이미지에 대한 질문")
+    
+    class Config:
+        populate_by_name = True
+
+
+class ImageAnalysisResponse(BaseModel):
+    """이미지 분석 응답"""
+    description: str = Field(..., description="이미지 설명")
+    extracted_text: Optional[str] = Field(default=None, alias="extractedText", description="OCR 추출 텍스트")
+    code_blocks: Optional[List[str]] = Field(default=None, alias="codeBlocks", description="추출된 코드 블록")
+    
+    class Config:
+        populate_by_name = True
+
+
+class ContextSuggestRequest(BaseModel):
+    """컨텍스트 제안 요청"""
+    workspace_id: str = Field(..., alias="workspaceId")
+    query: str = Field(..., min_length=1, description="검색 쿼리")
+    types: Optional[List[ContextType]] = Field(default=None, description="필터링할 타입")
+    limit: int = Field(default=10, ge=1, le=50)
+    
+    class Config:
+        populate_by_name = True
+
+
+class ContextSuggestion(BaseModel):
+    """컨텍스트 제안 아이템"""
+    type: ContextType
+    path: Optional[str] = None
+    name: str
+    preview: Optional[str] = None
+    relevance: float = Field(default=0.0, ge=0.0, le=1.0)
+    
+    class Config:
+        populate_by_name = True
+
+
+class ContextSuggestResponse(BaseModel):
+    """컨텍스트 제안 응답"""
+    suggestions: List[ContextSuggestion]
+    total: int
+    
+    class Config:
+        populate_by_name = True

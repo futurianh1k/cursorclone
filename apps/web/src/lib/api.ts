@@ -629,3 +629,161 @@ export async function getCursorSSHCommand(workspaceId: string): Promise<CursorSS
   }
   return response.json();
 }
+
+// ============================================================
+// AI Advanced Chat (Cursor-like features)
+// ============================================================
+
+export type ContextType = "file" | "selection" | "folder" | "image" | "url" | "clipboard";
+
+export interface ContextItem {
+  type: ContextType;
+  path?: string;
+  content?: string;
+  selection?: { startLine: number; endLine: number };
+  imageUrl?: string;
+  imageBase64?: string;
+  mimeType?: string;
+  name?: string;
+}
+
+export interface AIAdvancedChatRequest {
+  workspaceId: string;
+  message: string;
+  mode: AIMode;
+  contexts?: ContextItem[];
+  history?: Array<{ role: string; content: string }>;
+  currentFile?: string;
+  currentContent?: string;
+  currentSelection?: { startLine: number; endLine: number };
+}
+
+export interface AIAdvancedChatResponse {
+  response: string;
+  mode: AIMode;
+  tokensUsed: number;
+  planSteps?: TaskStep[];
+  fileChanges?: FileChange[];
+  bugFixes?: Array<{
+    filePath: string;
+    lineNumber?: number;
+    originalCode: string;
+    fixedCode: string;
+    explanation: string;
+  }>;
+  suggestedAction?: string;
+}
+
+export async function advancedChatWithAI(request: AIAdvancedChatRequest): Promise<AIAdvancedChatResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/ai/advanced/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to chat with AI: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+// ============================================================
+// Image Upload & Analysis
+// ============================================================
+
+export interface ImageUploadResponse {
+  imageId: string;
+  imageUrl: string;
+  thumbnailUrl?: string;
+  mimeType: string;
+  size: number;
+  width?: number;
+  height?: number;
+}
+
+export async function uploadImage(file: File): Promise<ImageUploadResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+  
+  const response = await fetch(`${API_BASE_URL}/api/ai/image/upload`, {
+    method: "POST",
+    body: formData,
+  });
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to upload image: ${response.statusText}`);
+  }
+  
+  return response.json();
+}
+
+export interface ImageAnalysisRequest {
+  workspaceId: string;
+  imageUrl?: string;
+  imageBase64?: string;
+  question?: string;
+}
+
+export interface ImageAnalysisResponse {
+  description: string;
+  extractedText?: string;
+  codeBlocks?: string[];
+}
+
+export async function analyzeImage(request: ImageAnalysisRequest): Promise<ImageAnalysisResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/ai/image/analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to analyze image: ${response.statusText}`);
+  }
+  
+  return response.json();
+}
+
+// ============================================================
+// Context Suggestion (@ autocomplete)
+// ============================================================
+
+export interface ContextSuggestion {
+  type: ContextType;
+  path?: string;
+  name: string;
+  preview?: string;
+  relevance: number;
+}
+
+export interface ContextSuggestResponse {
+  suggestions: ContextSuggestion[];
+  total: number;
+}
+
+export async function suggestContext(
+  workspaceId: string,
+  query: string,
+  types?: ContextType[],
+  limit: number = 10
+): Promise<ContextSuggestResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/ai/context/suggest`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      workspaceId,
+      query,
+      types,
+      limit,
+    }),
+  });
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to get suggestions: ${response.statusText}`);
+  }
+  
+  return response.json();
+}
