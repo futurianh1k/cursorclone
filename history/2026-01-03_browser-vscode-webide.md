@@ -2,7 +2,7 @@
 
 **날짜**: 2026-01-03  
 **브랜치**: `feature/browser-vscode-webide`  
-**상태**: 계획 수립 완료
+**상태**: Phase 1 구현 완료
 
 ---
 
@@ -70,17 +70,35 @@ git checkout -b feature/browser-vscode-webide
 | 파일 | 설명 |
 |------|------|
 | `docs/architecture-comparison.md` | 현재 vs 목표 아키텍처 상세 비교 분석 |
+| `docs/integration-design.md` | 기존 프로젝트 + Opus 스캐폴드 통합 설계 |
 | `history/2026-01-03_browser-vscode-webide.md` | 본 변경 이력 문서 |
+
+### 3.3 구현된 코드
+
+| 파일 | 설명 |
+|------|------|
+| `apps/api/src/models/ide.py` | IDE 컨테이너 Pydantic 모델 |
+| `apps/api/src/routers/ide.py` | IDE 컨테이너 프로비저닝 API |
+| `apps/api/tests/test_ide.py` | IDE API 테스트 코드 |
+| `apps/web/src/components/WebIDELauncher.tsx` | Web IDE 런처 컴포넌트 |
+| `apps/web/src/lib/api.ts` | IDE API 클라이언트 함수 추가 |
+| `apps/web/src/app/page.tsx` | 메인 페이지에 Web IDE 버튼 추가 |
+| `docker-compose.webide.yml` | WebIDE PoC 환경 Docker Compose |
+| `docker/code-server/Dockerfile` | code-server 이미지 정의 |
+| `docker/code-server/settings.json` | VS Code 설정 |
+| `docker/code-server/continue-config.json` | Continue 확장 설정 |
+| `docker/nginx/nginx.conf` | Nginx 리버스 프록시 설정 |
+| `docker/litellm/config.yaml` | LiteLLM 프록시 설정 |
 
 ---
 
 ## 4. 구현 계획
 
-### Phase 1: 기본 WebIDE 전환 (1-2주)
-- [ ] code-server Docker 이미지 생성
-- [ ] IDE 컨테이너 프로비저닝 API 구현
-- [ ] 대시보드 → IDE 리다이렉트 구현
-- [ ] Traefik 동적 라우팅 설정
+### Phase 1: 기본 WebIDE 전환 ✅ 완료
+- [x] code-server Docker 이미지 생성 (`docker/code-server/Dockerfile`)
+- [x] IDE 컨테이너 프로비저닝 API 구현 (`apps/api/src/routers/ide.py`)
+- [x] 대시보드 → IDE 리다이렉트 구현 (`WebIDELauncher.tsx`)
+- [x] Nginx 동적 라우팅 설정 (`docker/nginx/nginx.conf`)
 
 ### Phase 2: AI 확장 통합 (1-2주)
 - [ ] Tabby Server 배포
@@ -130,4 +148,26 @@ git checkout -b feature/browser-vscode-webide
 
 ## 7. 관련 커밋
 
-- 초기 계획 수립 및 문서 작성 (현재)
+- `abe79a8`: feat: 기존 프로젝트 + Opus 스캐폴드 통합 설계 완료
+- `a90ef37`: feat: IDE 컨테이너 프로비저닝 API 및 대시보드 연동 구현
+
+## 8. 다음 단계
+
+### 즉시 실행 가능한 작업
+1. `docker-compose.webide.yml`로 PoC 환경 기동
+2. code-server 컨테이너 접속 테스트
+3. Tabby/Continue 확장 동작 확인
+
+### 실행 명령어
+```bash
+# WebIDE PoC 환경 기동
+docker compose -f docker-compose.webide.yml up -d
+
+# 로그 확인
+docker compose -f docker-compose.webide.yml logs -f code-server
+
+# 접속
+# - 대시보드: http://localhost:3000
+# - code-server: http://localhost:8443
+# - Keycloak: http://localhost:8080
+```
