@@ -405,11 +405,12 @@ async def get_usage(
     사용량 통계 조회
     
     현재 사용자의 토큰 사용량 및 요청 횟수를 반환합니다.
+    Redis에서 실시간 사용량, DB에서 일별 집계를 조회합니다.
     """
     user_id = get_user_id_from_model(current_user) if current_user else get_user_id_from_header(req)
     
-    # TODO: Redis 또는 DB에서 실제 사용량 조회
-    return {
+    # 기본값
+    usage_data = {
         "user_id": user_id,
         "period": "daily",
         "requests": 0,
@@ -423,3 +424,139 @@ async def get_usage(
             "tokens_per_day": 1000000,
         }
     }
+    
+    # Redis에서 실시간 사용량 조회
+    try:
+        redis_usage = await _get_usage_from_redis(user_id)
+        if redis_usage:
+            usage_data["requests"] = redis_usage.get("requests", 0)
+            usage_data["tokens"]["input"] = redis_usage.get("input_tokens", 0)
+            usage_data["tokens"]["output"] = redis_usage.get("output_tokens", 0)
+            usage_data["tokens"]["total"] = (
+                redis_usage.get("input_tokens", 0) + redis_usage.get("output_tokens", 0)
+            )
+    except Exception as e:
+        logger.warning(f"Failed to get usage from Redis: {e}")
+        # Redis 실패 시 DB에서 조회
+        try:
+            db_usage = await _get_usage_from_db(user_id)
+            if db_usage:
+                usage_data["requests"] = db_usage.get("requests", 0)
+                usage_data["tokens"]["total"] = db_usage.get("total_tokens", 0)
+        except Exception as db_e:
+            logger.warning(f"Failed to get usage from DB: {db_e}")
+    
+    return usage_data
+
+
+async def _get_usage_from_redis(user_id: str) -> dict:
+    """
+    Redis에서 사용량 조회
+    
+    키 구조:
+    - usage:{user_id}:requests:{date} - 일별 요청 수
+    - usage:{user_id}:input_tokens:{date} - 일별 입력 토큰
+    - usage:{user_id}:output_tokens:{date} - 일별 출력 토큰
+    """
+    try:
+        import redis.asyncio as redis
+    except ImportError:
+        logger.debug("redis library not installed")
+        return {}
+    
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    
+    try:
+        client = redis.from_url(REDIS_URL, decode_responses=True)
+        
+        # 파이프라인으로 여러 키 조회
+        async with client.pipeline() as pipe:
+            await pipe.get(f"usage:{user_id}:requests:{today}")
+            await pipe.get(f"usage:{user_id}:input_tokens:{today}")
+            await pipe.get(f"usage:{user_id}:output_tokens:{today}")
+            results = await pipe.execute()
+        
+        await client.close()
+        
+        return {
+            "requests": int(results[0]) if results[0] else 0,
+            "input_tokens": int(results[1]) if results[1] else 0,
+            "output_tokens": int(results[2]) if results[2] else 0,
+        }
+    except Exception as e:
+        logger.debug(f"Redis query failed: {e}")
+        raise
+
+
+async def _get_usage_from_db(user_id: str) -> dict:
+    """
+    DB에서 사용량 집계
+    
+    audit_logs 테이블에서 오늘 사용량 집계
+    """
+    from sqlalchemy import select, func
+    from ..db.connection import get_db_session
+    from ..db.models import AuditLogModel
+    
+    today_start = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    
+    try:
+        async with get_db_session() as db:
+            result = await db.execute(
+                select(
+                    func.count(AuditLogModel.id).label("requests"),
+                    func.sum(AuditLogModel.tokens_used).label("total_tokens"),
+                ).where(
+                    AuditLogModel.user_id == user_id,
+                    AuditLogModel.timestamp >= today_start,
+                )
+            )
+            row = result.first()
+            
+            return {
+                "requests": row.requests if row else 0,
+                "total_tokens": row.total_tokens if row else 0,
+            }
+    except Exception as e:
+        logger.debug(f"DB query failed: {e}")
+        raise
+
+
+async def increment_usage_in_redis(
+    user_id: str,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+):
+    """
+    Redis에서 사용량 증가
+    
+    AI 요청 후 호출하여 실시간 사용량 업데이트
+    """
+    try:
+        import redis.asyncio as redis
+    except ImportError:
+        return
+    
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    
+    try:
+        client = redis.from_url(REDIS_URL, decode_responses=True)
+        
+        async with client.pipeline() as pipe:
+            # 요청 수 증가
+            await pipe.incr(f"usage:{user_id}:requests:{today}")
+            # 입력 토큰 증가
+            await pipe.incrby(f"usage:{user_id}:input_tokens:{today}", input_tokens)
+            # 출력 토큰 증가
+            await pipe.incrby(f"usage:{user_id}:output_tokens:{today}", output_tokens)
+            # 24시간 후 만료 설정
+            await pipe.expire(f"usage:{user_id}:requests:{today}", 86400 * 2)
+            await pipe.expire(f"usage:{user_id}:input_tokens:{today}", 86400 * 2)
+            await pipe.expire(f"usage:{user_id}:output_tokens:{today}", 86400 * 2)
+            await pipe.execute()
+        
+        await client.close()
+    except Exception as e:
+        logger.warning(f"Failed to increment usage in Redis: {e}")

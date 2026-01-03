@@ -6,9 +6,12 @@ AI 라우터
 - POST /api/ai/plan      - 작업 계획 수립
 - POST /api/ai/agent     - 자동 코드 작성/수정
 - POST /api/ai/debug     - 버그 분석/수정
+
+설정은 config.py에서 중앙 관리됩니다.
 """
 
 from fastapi import APIRouter, HTTPException, status
+from ..config import settings
 from ..models import (
     AIExplainRequest,
     AIExplainResponse,
@@ -71,9 +74,39 @@ def _get_context_builder(workspace_id: str) -> DefaultContextBuilder:
     return _context_builder_cache[workspace_id]
 
 
-def _validate_workspace_access(ws_id: str) -> bool:
-    """워크스페이스 접근 권한 검증"""
-    # TODO: 실제 권한 검증 로직 구현
+def _validate_workspace_access(ws_id: str, user_id: str = None) -> bool:
+    """
+    워크스페이스 접근 권한 검증
+    
+    검증 로직:
+    1. 워크스페이스 존재 여부 확인
+    2. 사용자가 워크스페이스 소유자인지 확인 (user_id 제공 시)
+    3. 공유 권한 확인 (추후 구현)
+    
+    Args:
+        ws_id: 워크스페이스 ID
+        user_id: 사용자 ID (선택적)
+    
+    Returns:
+        접근 가능 여부
+    """
+    from ..utils.filesystem import get_workspace_root, workspace_exists
+    
+    # 1. 워크스페이스 존재 여부 확인
+    workspace_root = get_workspace_root(ws_id)
+    if not workspace_exists(workspace_root):
+        return False
+    
+    # 2. 사용자 권한 확인 (user_id 제공 시)
+    if user_id:
+        # 워크스페이스 ID에서 소유자 추출 (형식: owner_id/workspace_name 또는 ws_name)
+        if "/" in ws_id:
+            owner_id = ws_id.split("/")[0]
+            if owner_id != user_id:
+                # 공유 권한 확인 (DB 조회 - 추후 구현)
+                # 현재는 소유자가 아니어도 존재하면 접근 허용 (PoC)
+                pass
+    
     return True
 
 
@@ -172,8 +205,7 @@ async def explain_code(request: AIExplainRequest):
         context_response = await context_builder.build(context_request)
         
         # vLLM 호출 (개발 모드에서는 Mock 응답)
-        import os
-        dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+        dev_mode = settings.DEV_MODE
         
         try:
             if dev_mode:
@@ -311,8 +343,7 @@ async def chat_with_ai(request: AIChatRequest):
         )
     
     try:
-        import os
-        dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+        dev_mode = settings.DEV_MODE
         
         # 파일 내용 가져오기
         file_content = None
@@ -665,8 +696,7 @@ async def create_plan(request: AIPlanRequest):
         )
     
     try:
-        import os
-        dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+        dev_mode = settings.DEV_MODE
         
         # 관련 파일 내용 수집
         file_contents = {}
@@ -837,8 +867,7 @@ async def run_agent(request: AIAgentRequest):
         )
     
     try:
-        import os
-        dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+        dev_mode = settings.DEV_MODE
         
         # 관련 파일 내용 수집
         file_contents = {}
@@ -1033,8 +1062,7 @@ async def debug_code(request: AIDebugRequest):
         )
     
     try:
-        import os
-        dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+        dev_mode = settings.DEV_MODE
         
         # 파일 내용 가져오기
         file_content = None
@@ -1285,12 +1313,12 @@ from ..models import (
     ContextSuggestion,
     ContextSuggestResponse,
 )
-import os
 import uuid
 import base64
 from pathlib import Path
+import os
 
-# 이미지 저장 경로
+# 이미지 저장 경로 (환경변수 또는 기본값)
 IMAGE_UPLOAD_DIR = Path(os.getenv("IMAGE_UPLOAD_DIR", "/tmp/ai_images"))
 IMAGE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -1419,10 +1447,10 @@ async def analyze_image(request: ImageAnalysisRequest):
     import base64
     import httpx
     
-    # 환경 설정
-    dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
-    litellm_url = os.getenv("LITELLM_BASE_URL", "http://cursor-poc-litellm:4000")
-    vision_model = os.getenv("VISION_MODEL", "gpt-4-vision-preview")  # 기본: GPT-4V
+    # 중앙 설정에서 가져오기
+    dev_mode = settings.DEV_MODE
+    litellm_url = settings.LITELLM_BASE_URL
+    vision_model = settings.VISION_MODEL
     
     # 개발 모드 Mock 응답
     if dev_mode:
