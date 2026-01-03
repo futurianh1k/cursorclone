@@ -155,9 +155,110 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # Health check (라우터 외부)
 @app.get("/health", tags=["health"])
-def health():
-    """서버 상태 확인"""
+async def health():
+    """
+    기본 서버 상태 확인 (간단)
+    
+    Kubernetes liveness probe용
+    """
     return {"ok": True, "version": "0.1.0"}
+
+
+@app.get("/health/ready", tags=["health"])
+async def health_ready():
+    """
+    준비 상태 확인 (상세)
+    
+    Kubernetes readiness probe용
+    DB, Redis, vLLM 연결 상태 확인
+    """
+    import httpx
+    from datetime import datetime
+    
+    checks = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "version": "0.1.0",
+        "checks": {}
+    }
+    all_healthy = True
+    
+    # 1. 데이터베이스 확인
+    try:
+        from .db import get_db, async_session
+        async with async_session() as session:
+            from sqlalchemy import text
+            await session.execute(text("SELECT 1"))
+        checks["checks"]["database"] = {"status": "healthy", "latency_ms": 0}
+    except Exception as e:
+        checks["checks"]["database"] = {"status": "unhealthy", "error": str(e)}
+        all_healthy = False
+    
+    # 2. Redis 확인
+    try:
+        from .services.cache_service import cache_service
+        if cache_service._client:
+            await cache_service._client.ping()
+            checks["checks"]["redis"] = {"status": "healthy"}
+        else:
+            checks["checks"]["redis"] = {"status": "not_configured"}
+    except Exception as e:
+        checks["checks"]["redis"] = {"status": "unhealthy", "error": str(e)}
+        all_healthy = False
+    
+    # 3. vLLM/LiteLLM 확인
+    try:
+        vllm_url = os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1")
+        litellm_url = os.getenv("LITELLM_BASE_URL", "")
+        
+        target_url = litellm_url if litellm_url else vllm_url
+        if target_url:
+            # /health 또는 /models 엔드포인트 확인
+            health_url = target_url.replace("/v1", "/health")
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(health_url)
+                if resp.status_code == 200:
+                    checks["checks"]["llm"] = {"status": "healthy", "url": target_url}
+                else:
+                    # /models 시도
+                    resp = await client.get(f"{target_url}/models")
+                    if resp.status_code == 200:
+                        checks["checks"]["llm"] = {"status": "healthy", "url": target_url}
+                    else:
+                        checks["checks"]["llm"] = {"status": "degraded", "status_code": resp.status_code}
+        else:
+            checks["checks"]["llm"] = {"status": "not_configured"}
+    except Exception as e:
+        checks["checks"]["llm"] = {"status": "unhealthy", "error": str(e)}
+        # LLM 실패는 전체 실패로 처리하지 않음 (선택적 서비스)
+    
+    # 4. 워크스페이스 디렉토리 확인
+    workspaces_dir = Path("/workspaces")
+    if workspaces_dir.exists() and workspaces_dir.is_dir():
+        checks["checks"]["workspaces"] = {
+            "status": "healthy",
+            "path": str(workspaces_dir),
+            "writable": os.access(workspaces_dir, os.W_OK)
+        }
+    else:
+        checks["checks"]["workspaces"] = {"status": "unhealthy", "error": "Directory not found"}
+        all_healthy = False
+    
+    checks["healthy"] = all_healthy
+    
+    if all_healthy:
+        return checks
+    else:
+        return JSONResponse(status_code=503, content=checks)
+
+
+@app.get("/health/live", tags=["health"])
+async def health_live():
+    """
+    생존 상태 확인 (최소)
+    
+    Kubernetes liveness probe용 - 앱이 응답하는지만 확인
+    """
+    return {"alive": True}
 
 
 # 개발용 디버그 엔드포인트
@@ -200,6 +301,10 @@ app.include_router(ws_router)
 @app.on_event("startup")
 async def startup_event():
     """앱 시작 시 실행"""
+    # Prometheus 메트릭 설정
+    from .middleware.metrics import setup_metrics
+    setup_metrics(app)
+    
     # 데이터베이스 초기화
     from .db import init_db
     await init_db()
