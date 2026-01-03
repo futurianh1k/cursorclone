@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 LITELLM_URL = os.getenv("LITELLM_URL", "http://cursor-poc-litellm:4000")
 LITELLM_API_KEY = os.getenv("LITELLM_API_KEY", "sk-cursor-poc-key")
 TABBY_URL = os.getenv("TABBY_URL", "http://cursor-poc-tabby:8080")
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 
 # 감사 로깅 (본문 제외)
 AUDIT_LOGGING_ENABLED = os.getenv("AUDIT_LOGGING_ENABLED", "true").lower() == "true"

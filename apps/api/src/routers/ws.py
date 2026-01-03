@@ -232,19 +232,61 @@ async def websocket_endpoint(websocket: WebSocket, ws_id: str):
                 
                 # 메시지 타입별 처리
                 if msg_type == WSMessageType.FILE_CHANGE.value:
-                    # TODO: 파일 변경 처리
-                    # - 변경 내용 검증
-                    # - 다른 클라이언트에 브로드캐스트
+                    # 파일 변경 처리
+                    file_path = payload.get("file_path", "")
+                    change_type = payload.get("change_type", "modify")  # create, modify, delete
+                    content = payload.get("content")
+                    
+                    # 경로 검증 (보안)
+                    if ".." in file_path or file_path.startswith("/"):
+                        await manager.send_personal(
+                            {
+                                "type": WSMessageType.ERROR.value,
+                                "payload": {
+                                    "error": "Invalid file path",
+                                    "code": "WS_INVALID_PATH",
+                                },
+                            },
+                            websocket,
+                        )
+                        continue
+                    
+                    # 변경 내용에 사용자 정보 추가
+                    enriched_payload = {
+                        **payload,
+                        "user_id": user_id,
+                        "timestamp": asyncio.get_event_loop().time(),
+                    }
+                    
+                    # 다른 클라이언트에 브로드캐스트
                     await manager.broadcast(
-                        {"type": msg_type, "payload": payload},
+                        {"type": msg_type, "payload": enriched_payload},
                         ws_id,
                         exclude=websocket,
                     )
                     
+                    logger.debug(f"File change broadcast: {change_type} {file_path} by {user_id}")
+                    
                 elif msg_type == WSMessageType.CURSOR_MOVE.value:
-                    # TODO: 커서 이동 처리 (협업)
+                    # 커서 이동 처리 (협업)
+                    file_path = payload.get("file_path", "")
+                    line = payload.get("line", 0)
+                    column = payload.get("column", 0)
+                    selection = payload.get("selection")  # {start: {line, col}, end: {line, col}}
+                    
+                    # 커서 정보에 사용자 정보 추가
+                    cursor_payload = {
+                        "user_id": user_id,
+                        "file_path": file_path,
+                        "line": line,
+                        "column": column,
+                        "selection": selection,
+                        "timestamp": asyncio.get_event_loop().time(),
+                    }
+                    
+                    # 다른 클라이언트에 브로드캐스트
                     await manager.broadcast(
-                        {"type": msg_type, "payload": payload},
+                        {"type": msg_type, "payload": cursor_payload},
                         ws_id,
                         exclude=websocket,
                     )

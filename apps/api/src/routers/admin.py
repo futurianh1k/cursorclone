@@ -253,20 +253,212 @@ async def test_server_connection(
             detail={"error": "Server not found", "code": "SERVER_NOT_FOUND"},
         )
     
-    # TODO: 실제 연결 테스트 구현
-    # - SSH 연결 테스트
-    # - Kubernetes API 연결 테스트
-    # - 리소스 정보 수집
+    # 서버 타입에 따른 연결 테스트
+    server_type = server.type
+    host = server.host
+    port = server.port
+    
+    resource_info = {}
+    success = False
+    message = ""
+    
+    try:
+        if server_type == "ssh" or server_type == "docker":
+            # SSH 연결 테스트
+            success, message, resource_info = await _test_ssh_connection(
+                server.id, host, port, db
+            )
+        elif server_type == "kubernetes":
+            # Kubernetes API 연결 테스트
+            success, message, resource_info = await _test_kubernetes_connection(
+                server.id, host, port, db
+            )
+        else:
+            # 기본: TCP 포트 연결 테스트
+            import asyncio
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(host, port),
+                    timeout=5.0
+                )
+                writer.close()
+                await writer.wait_closed()
+                success = True
+                message = f"TCP connection to {host}:{port} successful"
+            except asyncio.TimeoutError:
+                message = f"Connection to {host}:{port} timed out"
+            except Exception as e:
+                message = f"Connection failed: {str(e)}"
+        
+        # 마지막 헬스체크 시간 업데이트
+        if success:
+            from datetime import datetime, timezone
+            server.last_health_check = datetime.now(timezone.utc)
+            await db.commit()
+    
+    except Exception as e:
+        message = f"Connection test error: {str(e)}"
+        logger.error(f"Connection test failed for server {server_id}: {e}")
     
     return TestConnectionResponse(
-        success=True,
-        message="Connection test successful (stub)",
-        resource_info={
-            "cpu_cores": 8,
-            "memory_gb": 32,
-            "disk_gb": 500,
-        },
+        success=success,
+        message=message,
+        resource_info=resource_info if resource_info else None,
     )
+
+
+async def _test_ssh_connection(
+    server_id: UUID, host: str, port: int, db: AsyncSession
+) -> tuple[bool, str, dict]:
+    """
+    SSH 연결 테스트 및 리소스 정보 수집
+    
+    paramiko 라이브러리 사용
+    """
+    try:
+        import paramiko
+    except ImportError:
+        return False, "paramiko library not installed", {}
+    
+    # 서버 인증 정보 조회
+    from sqlalchemy import select
+    from ..db.models import ServerCredentialModel
+    
+    cred_result = await db.execute(
+        select(ServerCredentialModel).where(
+            ServerCredentialModel.server_id == server_id,
+            ServerCredentialModel.auth_type == "ssh_key"
+        )
+    )
+    credential = cred_result.scalar_one_or_none()
+    
+    if not credential:
+        return False, "No SSH credentials found for server", {}
+    
+    try:
+        # SSH 클라이언트 설정
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        
+        # 키 복호화 (암호화된 경우)
+        # TODO: credential에서 암호화된 키 복호화
+        private_key = credential.encrypted_private_key  # 실제로는 복호화 필요
+        
+        if private_key:
+            import io
+            key_file = io.StringIO(private_key)
+            pkey = paramiko.RSAKey.from_private_key(key_file)
+            
+            client.connect(
+                hostname=host,
+                port=port,
+                username="ubuntu",  # TODO: credential에서 가져오기
+                pkey=pkey,
+                timeout=10,
+            )
+        else:
+            return False, "SSH private key not found", {}
+        
+        # 리소스 정보 수집
+        resource_info = {}
+        
+        # CPU 정보
+        stdin, stdout, stderr = client.exec_command("nproc")
+        cpu_cores = stdout.read().decode().strip()
+        resource_info["cpu_cores"] = int(cpu_cores) if cpu_cores.isdigit() else 0
+        
+        # 메모리 정보 (GB)
+        stdin, stdout, stderr = client.exec_command("free -g | grep Mem | awk '{print $2}'")
+        memory_gb = stdout.read().decode().strip()
+        resource_info["memory_gb"] = int(memory_gb) if memory_gb.isdigit() else 0
+        
+        # 디스크 정보 (GB)
+        stdin, stdout, stderr = client.exec_command("df -BG / | tail -1 | awk '{print $2}'")
+        disk_str = stdout.read().decode().strip().replace("G", "")
+        resource_info["disk_gb"] = int(disk_str) if disk_str.isdigit() else 0
+        
+        client.close()
+        
+        return True, "SSH connection successful", resource_info
+        
+    except paramiko.AuthenticationException:
+        return False, "SSH authentication failed", {}
+    except paramiko.SSHException as e:
+        return False, f"SSH error: {str(e)}", {}
+    except Exception as e:
+        return False, f"SSH connection failed: {str(e)}", {}
+
+
+async def _test_kubernetes_connection(
+    server_id: UUID, host: str, port: int, db: AsyncSession
+) -> tuple[bool, str, dict]:
+    """
+    Kubernetes API 연결 테스트
+    
+    kubernetes 라이브러리 사용
+    """
+    try:
+        from kubernetes import client, config
+        from kubernetes.client.rest import ApiException
+    except ImportError:
+        return False, "kubernetes library not installed", {}
+    
+    # 서버 인증 정보 조회
+    from sqlalchemy import select
+    from ..db.models import ServerCredentialModel
+    
+    cred_result = await db.execute(
+        select(ServerCredentialModel).where(
+            ServerCredentialModel.server_id == server_id,
+            ServerCredentialModel.auth_type == "api_key"
+        )
+    )
+    credential = cred_result.scalar_one_or_none()
+    
+    try:
+        # API 클라이언트 설정
+        configuration = client.Configuration()
+        configuration.host = f"https://{host}:{port}"
+        
+        if credential and credential.encrypted_api_key:
+            # TODO: API 키 복호화
+            configuration.api_key = {"authorization": f"Bearer {credential.encrypted_api_key}"}
+        
+        # SSL 인증서 검증 비활성화 (PoC용)
+        configuration.verify_ssl = False
+        
+        api_client = client.ApiClient(configuration)
+        v1 = client.CoreV1Api(api_client)
+        
+        # 노드 정보 조회
+        nodes = v1.list_node(timeout_seconds=10)
+        
+        total_cpu = 0
+        total_memory = 0
+        
+        for node in nodes.items:
+            capacity = node.status.capacity
+            if capacity:
+                cpu = capacity.get("cpu", "0")
+                memory = capacity.get("memory", "0Ki")
+                
+                total_cpu += int(cpu) if cpu.isdigit() else 0
+                # Ki를 GB로 변환
+                if memory.endswith("Ki"):
+                    total_memory += int(memory[:-2]) // (1024 * 1024)
+        
+        resource_info = {
+            "node_count": len(nodes.items),
+            "total_cpu_cores": total_cpu,
+            "total_memory_gb": total_memory,
+        }
+        
+        return True, f"Kubernetes connection successful ({len(nodes.items)} nodes)", resource_info
+        
+    except ApiException as e:
+        return False, f"Kubernetes API error: {e.reason}", {}
+    except Exception as e:
+        return False, f"Kubernetes connection failed: {str(e)}", {}
 
 
 @router.post(
@@ -321,4 +513,147 @@ async def place_workspace(
         "server_id": str(server.id),
         "server_name": server.name,
         "placement_id": str(placement.id) if hasattr(placement, "id") else None,
+    }
+
+
+# ============================================================
+# 사용자 선호도 API
+# ============================================================
+
+@router.get(
+    "/preferences",
+    summary="사용자 선호도 조회",
+    description="현재 사용자의 선호도 설정을 조회합니다.",
+)
+async def get_user_preferences(
+    current_user: UserModel = Depends(require_permission(Permission.WORKSPACE_READ)),
+):
+    """사용자 선호도 조회"""
+    from ..services.user_preference_service import user_preference_service
+    
+    preferences = await user_preference_service.get_all_preferences(current_user.user_id)
+    return preferences
+
+
+@router.get(
+    "/preferences/last-server",
+    summary="마지막 선택 서버 조회",
+    description="사용자가 마지막으로 선택한 서버 ID를 반환합니다.",
+)
+async def get_last_selected_server(
+    current_user: UserModel = Depends(require_permission(Permission.WORKSPACE_READ)),
+):
+    """마지막 선택 서버 조회"""
+    from ..services.user_preference_service import user_preference_service
+    
+    server_id = await user_preference_service.get_last_selected_server(current_user.user_id)
+    
+    if not server_id:
+        return {"server_id": None, "message": "No server selected yet"}
+    
+    # 서버 정보 조회
+    from sqlalchemy import select
+    from ..db.connection import get_db_session
+    
+    async with get_db_session() as db:
+        result = await db.execute(
+            select(InfrastructureServerModel).where(
+                InfrastructureServerModel.id == server_id
+            )
+        )
+        server = result.scalar_one_or_none()
+    
+    if not server:
+        return {"server_id": server_id, "server_name": None, "message": "Server not found"}
+    
+    return {
+        "server_id": str(server.id),
+        "server_name": server.name,
+        "server_type": server.type,
+        "server_status": server.status,
+    }
+
+
+@router.post(
+    "/preferences/last-server",
+    summary="마지막 선택 서버 설정",
+    description="사용자의 마지막 선택 서버를 저장합니다.",
+)
+async def set_last_selected_server(
+    server_id: UUID,
+    current_user: UserModel = Depends(require_permission(Permission.WORKSPACE_READ)),
+    db: AsyncSession = Depends(get_db),
+):
+    """마지막 선택 서버 설정"""
+    from ..services.user_preference_service import user_preference_service
+    from sqlalchemy import select
+    
+    # 서버 존재 확인
+    result = await db.execute(
+        select(InfrastructureServerModel).where(
+            InfrastructureServerModel.id == server_id
+        )
+    )
+    server = result.scalar_one_or_none()
+    
+    if not server:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "Server not found", "code": "SERVER_NOT_FOUND"},
+        )
+    
+    await user_preference_service.set_last_selected_server(
+        current_user.user_id,
+        str(server_id),
+    )
+    
+    return {
+        "message": "Last selected server updated",
+        "server_id": str(server_id),
+    }
+
+
+@router.get(
+    "/preferences/recent-workspaces",
+    summary="최근 사용 워크스페이스 조회",
+    description="사용자의 최근 사용 워크스페이스 목록을 반환합니다.",
+)
+async def get_recent_workspaces(
+    limit: int = 5,
+    current_user: UserModel = Depends(require_permission(Permission.WORKSPACE_READ)),
+):
+    """최근 사용 워크스페이스 조회"""
+    from ..services.user_preference_service import user_preference_service
+    
+    workspace_ids = await user_preference_service.get_recent_workspaces(
+        current_user.user_id,
+        limit=min(limit, 20),
+    )
+    
+    return {
+        "workspaces": workspace_ids,
+        "count": len(workspace_ids),
+    }
+
+
+@router.post(
+    "/preferences/recent-workspaces",
+    summary="최근 사용 워크스페이스 추가",
+    description="워크스페이스를 최근 사용 목록에 추가합니다.",
+)
+async def add_recent_workspace(
+    workspace_id: str,
+    current_user: UserModel = Depends(require_permission(Permission.WORKSPACE_READ)),
+):
+    """최근 사용 워크스페이스 추가"""
+    from ..services.user_preference_service import user_preference_service
+    
+    await user_preference_service.add_recent_workspace(
+        current_user.user_id,
+        workspace_id,
+    )
+    
+    return {
+        "message": "Workspace added to recent list",
+        "workspace_id": workspace_id,
     }
