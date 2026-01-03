@@ -129,7 +129,10 @@ export async function getFileContent(
   path: string
 ): Promise<FileContent> {
   const response = await fetch(
-    `${API_BASE_URL}/api/workspaces/${workspaceId}/files/content?path=${encodeURIComponent(path)}`
+    `${API_BASE_URL}/api/workspaces/${workspaceId}/files/content?path=${encodeURIComponent(path)}`,
+    {
+      headers: getAuthHeaders(),
+    }
   );
   if (!response.ok) {
     throw new Error(`Failed to get file content: ${response.statusText}`);
