@@ -1,10 +1,18 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { rewriteCode, validatePatch, applyPatch, chatWithAI, AIRewriteRequest, AIChatRequest } from "@/lib/api";
-import { createPlan, runAgent, debugCode, AIPlanRequest, AIAgentRequest, AIDebugRequest } from "@/lib/api";
-import { AIAdvancedChatResponse } from "@/lib/api";
-import AIInputPanel from "./AIInputPanel";
+import { useState, useRef, useEffect, useCallback } from "react";
+import {
+  advancedChatWithAI,
+  uploadImage,
+  suggestContext,
+  validatePatch,
+  applyPatch,
+  AIAdvancedChatResponse,
+  ContextItem,
+  ContextType,
+  ContextSuggestion,
+  AIMode,
+} from "@/lib/api";
 
 interface AIChatProps {
   workspaceId: string;
@@ -14,39 +22,19 @@ interface AIChatProps {
 }
 
 interface Message {
+  id: string;
   role: "user" | "assistant" | "system";
   content: string;
-  type?: "plan" | "agent" | "debug" | "chat";
+  mode?: AIMode;
+  timestamp: Date;
 }
 
-type AIMode = "ask" | "agent" | "plan" | "debug";
-
-const MODE_INFO: Record<AIMode, { name: string; icon: string; description: string; color: string }> = {
-  ask: {
-    name: "Ask",
-    icon: "💬",
-    description: "코드에 대해 질문하고 답변을 받습니다.",
-    color: "#007acc",
-  },
-  agent: {
-    name: "Agent",
-    icon: "🤖",
-    description: "자동으로 코드를 분석하고 변경 사항을 제안합니다.",
-    color: "#7c3aed",
-  },
-  plan: {
-    name: "Plan",
-    icon: "📋",
-    description: "목표를 분석하고 단계별 실행 계획을 생성합니다.",
-    color: "#059669",
-  },
-  debug: {
-    name: "Debug",
-    icon: "🐛",
-    description: "에러를 분석하고 버그 수정 방안을 제시합니다.",
-    color: "#dc2626",
-  },
-};
+const MODES: { id: AIMode; icon: string; label: string; shortLabel: string; color: string }[] = [
+  { id: "agent", icon: "⚡", label: "Agent", shortLabel: "Agent", color: "#7c3aed" },
+  { id: "ask", icon: "💬", label: "Ask", shortLabel: "Ask", color: "#007acc" },
+  { id: "plan", icon: "📋", label: "Plan", shortLabel: "Plan", color: "#059669" },
+  { id: "debug", icon: "🐛", label: "Debug", shortLabel: "Debug", color: "#dc2626" },
+];
 
 export default function AIChat({
   workspaceId,
@@ -54,619 +42,820 @@ export default function AIChat({
   fileContent,
   selection,
 }: AIChatProps) {
-  const [instruction, setInstruction] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [diff, setDiff] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [applying, setApplying] = useState(false);
+  // 상태
+  const [message, setMessage] = useState("");
+  const [mode, setMode] = useState<AIMode>("agent");
   const [messages, setMessages] = useState<Message[]>([]);
-  const [mode, setMode] = useState<AIMode>("ask");
-  const [showRewrite, setShowRewrite] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   
-  // 자동 스크롤을 위한 ref
+  // 컨텍스트
+  const [contexts, setContexts] = useState<ContextItem[]>([]);
+  const [showModeMenu, setShowModeMenu] = useState(false);
+  const [showContextMenu, setShowContextMenu] = useState(false);
+  const [contextQuery, setContextQuery] = useState("");
+  const [contextSuggestions, setContextSuggestions] = useState<ContextSuggestion[]>([]);
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
+  
+  // Diff/Patch
+  const [pendingDiff, setPendingDiff] = useState<string | null>(null);
+  const [applyingPatch, setApplyingPatch] = useState(false);
+  
+  // Refs
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
-  
-  // 메시지가 추가될 때 자동 스크롤
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const modeMenuRef = useRef<HTMLDivElement>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+
+  // 자동 스크롤
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // ============================================================
-  // Ask Mode (Chat)
-  // ============================================================
-  const handleAsk = async () => {
-    if (!instruction.trim()) return;
-    
-    const userMessage = instruction.trim();
-    setMessages([...messages, { role: "user", content: userMessage }]);
-    setInstruction("");
-    
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const request: AIChatRequest = {
-        workspaceId,
-        message: userMessage,
-        filePath: currentFile,
-        fileContent: fileContent,
-        selection: selection,
-        history: messages.map(m => ({ role: m.role, content: m.content })),
-      };
-      
-      const response = await chatWithAI(request);
-      
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: response.response, type: "chat" },
-      ]);
-      
-      // Rewrite가 제안된 경우
-      if (response.suggestedAction === "rewrite" && currentFile && selection) {
-        setShowRewrite(true);
+  // 텍스트 영역 높이 조절
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 150)}px`;
+    }
+  }, [message]);
+
+  // 메뉴 외부 클릭 감지
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (modeMenuRef.current && !modeMenuRef.current.contains(e.target as Node)) {
+        setShowModeMenu(false);
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to get response");
-    } finally {
-      setLoading(false);
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setShowContextMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // 현재 모드 정보
+  const currentMode = MODES.find((m) => m.id === mode) || MODES[0];
+
+  // @ 입력 감지
+  const handleInputChange = async (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    setMessage(value);
+
+    const cursorPos = e.target.selectionStart;
+    const textBefore = value.slice(0, cursorPos);
+    const atMatch = textBefore.match(/@(\w*)$/);
+
+    if (atMatch) {
+      setContextQuery(atMatch[1]);
+      setShowContextMenu(true);
+      setSelectedSuggestionIndex(0);
+      try {
+        const result = await suggestContext(workspaceId, atMatch[1]);
+        setContextSuggestions(result.suggestions);
+      } catch {
+        setContextSuggestions([]);
+      }
+    } else {
+      setShowContextMenu(false);
     }
   };
 
-  // ============================================================
-  // Plan Mode
-  // ============================================================
-  const handlePlan = async () => {
-    if (!instruction.trim()) return;
+  // 컨텍스트 선택
+  const selectContext = (suggestion: ContextSuggestion) => {
+    const cursorPos = textareaRef.current?.selectionStart || 0;
+    const textBefore = message.slice(0, cursorPos);
+    const textAfter = message.slice(cursorPos);
+    const atIndex = textBefore.lastIndexOf("@");
     
-    const goal = instruction.trim();
-    setMessages([...messages, { role: "user", content: `📋 목표: ${goal}` }]);
-    setInstruction("");
-    
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const request: AIPlanRequest = {
-        workspaceId,
-        goal,
-        context: currentFile ? `현재 파일: ${currentFile}` : undefined,
-        filePaths: currentFile ? [currentFile] : undefined,
-      };
-      
-      const response = await createPlan(request);
-      
-      // 계획을 보기 좋게 포맷팅
-      let planContent = `## ${response.summary}\n\n`;
-      planContent += `**예상 변경 파일**: ${response.estimatedChanges}개\n\n`;
-      planContent += `### 실행 단계\n`;
-      response.steps.forEach((step) => {
-        planContent += `\n${step.stepNumber}. ${step.description}`;
-        if (step.filePath) {
-          planContent += `\n   📄 \`${step.filePath}\``;
-        }
-      });
-      
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: planContent, type: "plan" },
-      ]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create plan");
-    } finally {
-      setLoading(false);
-    }
+    const newMessage = textBefore.slice(0, atIndex) + textAfter;
+    setMessage(newMessage);
+    setShowContextMenu(false);
+
+    setContexts((prev) => [
+      ...prev,
+      {
+        type: suggestion.type,
+        path: suggestion.path,
+        name: suggestion.name,
+      },
+    ]);
+
+    textareaRef.current?.focus();
   };
 
-  // ============================================================
-  // Agent Mode
-  // ============================================================
-  const handleAgent = async () => {
-    if (!instruction.trim()) return;
-    
-    const agentInstruction = instruction.trim();
-    setMessages([...messages, { role: "user", content: `🤖 지시: ${agentInstruction}` }]);
-    setInstruction("");
-    
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const request: AIAgentRequest = {
-        workspaceId,
-        instruction: agentInstruction,
-        filePaths: currentFile ? [currentFile] : undefined,
-        autoApply: false,
-      };
-      
-      const response = await runAgent(request);
-      
-      // 에이전트 응답 포맷팅
-      let agentContent = `## ${response.summary}\n\n`;
-      
-      if (response.changes.length > 0) {
-        agentContent += `### 변경 사항 (${response.changes.length}개)\n`;
-        response.changes.forEach((change, i) => {
-          agentContent += `\n**${i + 1}. ${change.filePath}** (${change.action})\n`;
-          agentContent += `${change.description}\n`;
-          if (change.diff) {
-            agentContent += `\`\`\`diff\n${change.diff}\n\`\`\`\n`;
-          }
-        });
-        
-        // diff가 있으면 저장
-        const firstDiff = response.changes.find(c => c.diff);
-        if (firstDiff?.diff) {
-          setDiff(firstDiff.diff);
-        }
-      } else {
-        agentContent += `변경 사항이 없습니다.`;
+  // 키보드 이벤트
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (showContextMenu && contextSuggestions.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedSuggestionIndex((i) => Math.min(i + 1, contextSuggestions.length - 1));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedSuggestionIndex((i) => Math.max(i - 1, 0));
+      } else if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        selectContext(contextSuggestions[selectedSuggestionIndex]);
+      } else if (e.key === "Escape") {
+        setShowContextMenu(false);
       }
-      
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: agentContent, type: "agent" },
-      ]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to run agent");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ============================================================
-  // Debug Mode
-  // ============================================================
-  const handleDebug = async () => {
-    if (!instruction.trim()) return;
-    
-    const debugInput = instruction.trim();
-    setMessages([...messages, { role: "user", content: `🐛 디버그: ${debugInput}` }]);
-    setInstruction("");
-    
-    try {
-      setLoading(true);
-      setError(null);
-      
-      // 에러 메시지와 설명 분리 (첫 줄이 에러, 나머지가 설명)
-      const lines = debugInput.split('\n');
-      const errorMessage = lines[0];
-      const description = lines.slice(1).join('\n') || undefined;
-      
-      const request: AIDebugRequest = {
-        workspaceId,
-        errorMessage,
-        description,
-        filePath: currentFile,
-        fileContent: fileContent,
-      };
-      
-      const response = await debugCode(request);
-      
-      // 디버그 응답 포맷팅
-      let debugContent = `## 🔍 문제 진단\n\n`;
-      debugContent += `${response.diagnosis}\n\n`;
-      debugContent += `### 근본 원인\n${response.rootCause}\n\n`;
-      
-      if (response.fixes && response.fixes.length > 0) {
-        debugContent += `### 수정 제안 (${response.fixes.length}개)\n`;
-        response.fixes.forEach((fix, i) => {
-          debugContent += `\n**${i + 1}. ${fix.filePath}**`;
-          if (fix.lineNumber) debugContent += ` (line ${fix.lineNumber})`;
-          debugContent += `\n`;
-          debugContent += `${fix.explanation}\n`;
-          if (fix.originalCode && fix.fixedCode) {
-            debugContent += `\n\`\`\`diff\n- ${fix.originalCode}\n+ ${fix.fixedCode}\n\`\`\`\n`;
-          }
-        });
-      }
-      
-      if (response.preventionTips && response.preventionTips.length > 0) {
-        debugContent += `\n### 💡 예방 팁\n`;
-        response.preventionTips.forEach((tip) => {
-          debugContent += `- ${tip}\n`;
-        });
-      }
-      
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: debugContent, type: "debug" },
-      ]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to debug");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ============================================================
-  // Rewrite (Code Modification)
-  // ============================================================
-  const handleRewrite = async () => {
-    if (!instruction.trim() || !currentFile || !selection) {
-      setError("파일과 선택 영역을 지정해주세요.");
       return;
     }
 
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit();
+    }
+  };
+
+  // 이미지 업로드
+  const handleImageUpload = async (file: File) => {
+    if (!file.type.startsWith("image/")) return;
     try {
-      setLoading(true);
-      setError(null);
-      setDiff(null);
-
-      const request: AIRewriteRequest = {
-        workspaceId,
-        instruction: instruction.trim(),
-        target: {
-          file: currentFile,
-          selection: {
-            startLine: selection.startLine,
-            endLine: selection.endLine,
-          },
+      const result = await uploadImage(file);
+      setContexts((prev) => [
+        ...prev,
+        {
+          type: "image" as ContextType,
+          imageUrl: result.imageUrl,
+          name: file.name,
+          mimeType: result.mimeType,
         },
-      };
-
-      const response = await rewriteCode(request);
-      setDiff(response.diff);
-      setShowRewrite(false);
+      ]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to rewrite code");
+      setError(err instanceof Error ? err.message : "이미지 업로드 실패");
+    }
+  };
+
+  // 클립보드 붙여넣기
+  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) await handleImageUpload(file);
+        return;
+      }
+    }
+  }, []);
+
+  // 드래그 앤 드롭
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    const file = Array.from(e.dataTransfer.files).find((f) => f.type.startsWith("image/"));
+    if (file) await handleImageUpload(file);
+  };
+
+  // 컨텍스트 제거
+  const removeContext = (index: number) => {
+    setContexts((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  // 제출
+  const handleSubmit = async () => {
+    if (!message.trim() || loading) return;
+
+    const userMessage = message.trim();
+    const messageId = Date.now().toString();
+    
+    setMessages((prev) => [
+      ...prev,
+      { id: messageId, role: "user", content: userMessage, mode, timestamp: new Date() },
+    ]);
+    setMessage("");
+    setContexts([]);
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await advancedChatWithAI({
+        workspaceId,
+        message: userMessage,
+        mode,
+        contexts: contexts.length > 0 ? contexts : undefined,
+        currentFile,
+        currentContent: fileContent,
+        currentSelection: selection,
+      });
+
+      // 응답 포맷팅
+      let content = response.response;
+
+      if (response.fileChanges?.length) {
+        const firstDiff = response.fileChanges.find((c) => c.diff);
+        if (firstDiff?.diff) {
+          setPendingDiff(firstDiff.diff);
+        }
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `${messageId}-response`,
+          role: "assistant",
+          content,
+          mode: response.mode,
+          timestamp: new Date(),
+        },
+      ]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "요청 실패");
     } finally {
       setLoading(false);
     }
   };
 
-  // ============================================================
-  // Submit Handler (mode-based)
-  // ============================================================
-  const handleSubmit = () => {
-    switch (mode) {
-      case "ask":
-        handleAsk();
-        break;
-      case "plan":
-        handlePlan();
-        break;
-      case "agent":
-        handleAgent();
-        break;
-      case "debug":
-        handleDebug();
-        break;
-    }
-  };
-
-  // ============================================================
-  // Advanced Response Handler (from AIInputPanel)
-  // ============================================================
-  const handleAdvancedResponse = (response: AIAdvancedChatResponse) => {
-    // 모드에 따라 메시지 포맷팅
-    let content = response.response;
-    const newMode = response.mode as AIMode;
-    
-    // Plan 모드 응답
-    if (response.planSteps && response.planSteps.length > 0) {
-      content += "\n\n### 📋 실행 단계\n";
-      response.planSteps.forEach((step) => {
-        content += `\n${step.stepNumber}. ${step.description}`;
-        if (step.filePath) content += ` (📄 ${step.filePath})`;
-      });
-    }
-    
-    // Agent 모드 응답
-    if (response.fileChanges && response.fileChanges.length > 0) {
-      content += `\n\n### 🤖 파일 변경 (${response.fileChanges.length}개)\n`;
-      response.fileChanges.forEach((change, i) => {
-        content += `\n**${i + 1}. ${change.filePath}** (${change.action})`;
-        if (change.diff) {
-          content += `\n\`\`\`diff\n${change.diff}\n\`\`\``;
-          // 첫 번째 diff 저장
-          if (i === 0) setDiff(change.diff);
-        }
-      });
-    }
-    
-    // Debug 모드 응답
-    if (response.bugFixes && response.bugFixes.length > 0) {
-      content += `\n\n### 🐛 버그 수정 (${response.bugFixes.length}개)\n`;
-      response.bugFixes.forEach((fix, i) => {
-        content += `\n**${i + 1}. ${fix.filePath}**`;
-        if (fix.lineNumber) content += ` (line ${fix.lineNumber})`;
-        content += `\n${fix.explanation}`;
-        if (fix.originalCode && fix.fixedCode) {
-          content += `\n\`\`\`diff\n- ${fix.originalCode}\n+ ${fix.fixedCode}\n\`\`\``;
-        }
-      });
-    }
-    
-    setMessages((prev) => [
-      ...prev,
-      { role: "assistant", content, type: newMode },
-    ]);
-    
-    // 모드 업데이트
-    setMode(newMode);
-  };
-
-  // ============================================================
-  // Patch Application
-  // ============================================================
+  // 패치 적용
   const handleApplyPatch = async () => {
-    if (!diff) return;
+    if (!pendingDiff) return;
 
+    setApplyingPatch(true);
     try {
-      setApplying(true);
-      setError(null);
-
-      const validation = await validatePatch({
-        workspaceId,
-        patch: diff,
-      });
-
+      const validation = await validatePatch({ workspaceId, patch: pendingDiff });
       if (!validation.valid) {
-        setError(`Invalid patch: ${validation.reason}`);
+        setError(`패치 검증 실패: ${validation.reason}`);
         return;
       }
 
-      const result = await applyPatch({
-        workspaceId,
-        patch: diff,
-        dryRun: false,
-      });
-
+      const result = await applyPatch({ workspaceId, patch: pendingDiff, dryRun: false });
       if (result.success) {
-        setDiff(null);
-        setInstruction("");
+        setPendingDiff(null);
         setMessages((prev) => [
           ...prev,
-          { role: "system", content: `✅ 패치 적용 완료: ${result.appliedFiles.join(", ")}` },
+          {
+            id: `patch-${Date.now()}`,
+            role: "system",
+            content: `✅ 패치 적용 완료: ${result.appliedFiles.join(", ")}`,
+            timestamp: new Date(),
+          },
         ]);
       } else {
-        setError(result.message || "Failed to apply patch");
+        setError(result.message || "패치 적용 실패");
       }
-    } catch (err: any) {
-      if (err.message?.includes("Conflict")) {
-        setError("충돌이 발생했습니다. 파일이 변경되었을 수 있습니다.");
-      } else {
-        setError(err.message || "Failed to apply patch");
-      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "패치 적용 실패");
     } finally {
-      setApplying(false);
-    }
-  };
-
-  const handleCancel = () => {
-    setDiff(null);
-    setError(null);
-  };
-
-  const getPlaceholder = () => {
-    switch (mode) {
-      case "ask":
-        return "코드에 대해 질문하세요... (Enter로 전송)";
-      case "plan":
-        return "달성할 목표를 입력하세요... (예: 로그인 기능 추가)";
-      case "agent":
-        return "수행할 작업을 지시하세요... (예: 모든 함수에 docstring 추가)";
-      case "debug":
-        return "에러 메시지를 붙여넣으세요...";
+      setApplyingPatch(false);
     }
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      {/* 헤더 - 모드 선택 */}
-      <div style={{ flexShrink: 0, padding: "12px", borderBottom: "1px solid #ddd", backgroundColor: "#fafafa" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
-          <h3 style={{ margin: 0, fontSize: "16px" }}>
-            {MODE_INFO[mode].icon} {MODE_INFO[mode].name}
-          </h3>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        backgroundColor: "#1e1e1e",
+        color: "#d4d4d4",
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      }}
+    >
+      {/* 헤더 */}
+      <div
+        style={{
+          padding: "12px 16px",
+          borderBottom: "1px solid #333",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <span style={{ fontSize: "18px" }}>{currentMode.icon}</span>
+          <span style={{ fontWeight: 600, fontSize: "14px" }}>{currentMode.label}</span>
         </div>
-        
-        {/* 모드 선택 탭 */}
-        <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-          {(Object.keys(MODE_INFO) as AIMode[]).map((m) => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              style={{
-                padding: "6px 12px",
-                fontSize: "12px",
-                backgroundColor: mode === m ? MODE_INFO[m].color : "#f0f0f0",
-                color: mode === m ? "white" : "#555",
-                border: "none",
-                borderRadius: "6px",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "4px",
-                transition: "all 0.2s",
-              }}
-              title={MODE_INFO[m].description}
-            >
-              <span>{MODE_INFO[m].icon}</span>
-              <span>{MODE_INFO[m].name}</span>
-            </button>
-          ))}
-        </div>
-        
-        {/* 모드 설명 */}
-        <div style={{ fontSize: "11px", color: "#666", marginTop: "8px" }}>
-          {MODE_INFO[mode].description}
-        </div>
-        
-        {/* 현재 파일 정보 */}
         {currentFile && (
-          <div style={{ fontSize: "11px", color: "#888", marginTop: "4px" }}>
-            📄 {currentFile}
-            {selection && ` (lines ${selection.startLine}-${selection.endLine})`}
+          <div
+            style={{
+              fontSize: "11px",
+              color: "#888",
+              backgroundColor: "#2d2d2d",
+              padding: "4px 8px",
+              borderRadius: "4px",
+            }}
+          >
+            📄 {currentFile.split("/").pop()}
           </div>
         )}
       </div>
 
-      {/* 메시지 영역 - 스크롤 가능 */}
-      <div 
-        ref={messagesContainerRef}
-        style={{ 
-          flex: "1 1 0",
-          minHeight: 0,
-          overflowY: "auto", 
-          padding: "12px",
-          backgroundColor: "#fff",
+      {/* 메시지 영역 */}
+      <div
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          padding: "16px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "16px",
         }}
       >
-        {/* 빈 상태 메시지 */}
-        {messages.length === 0 && !loading && (
-          <div style={{ 
-            height: "100%",
-            display: "flex", 
-            flexDirection: "column",
-            alignItems: "center", 
-            justifyContent: "center",
-            color: "#999",
-            fontSize: "13px",
-            textAlign: "center",
-            gap: "8px",
-          }}>
-            <span style={{ fontSize: "32px" }}>{MODE_INFO[mode].icon}</span>
-            <span>{MODE_INFO[mode].description}</span>
-          </div>
-        )}
-        
-        {/* 메시지 목록 */}
-        {messages.map((msg, i) => (
+        {messages.length === 0 && (
           <div
-            key={i}
             style={{
-              marginBottom: "12px",
-              padding: "10px 12px",
-              backgroundColor: msg.role === "user" ? "#e3f2fd" : 
-                              msg.role === "system" ? "#e8f5e9" : "#f5f5f5",
-              borderRadius: "12px",
-              fontSize: "13px",
-              maxWidth: msg.role === "user" ? "85%" : "95%",
-              marginLeft: msg.role === "user" ? "auto" : "0",
-              marginRight: msg.role === "user" ? "0" : "auto",
-              boxShadow: "0 1px 2px rgba(0,0,0,0.1)",
-              borderLeft: msg.type ? `3px solid ${MODE_INFO[msg.type as AIMode]?.color || '#007acc'}` : undefined,
+              textAlign: "center",
+              padding: "40px 20px",
+              color: "#666",
             }}
           >
-            <div style={{ fontSize: "10px", color: "#666", marginBottom: "4px", fontWeight: 500 }}>
-              {msg.role === "user" ? "👤 You" : msg.role === "system" ? "⚙️ System" : "🤖 AI"}
-              {msg.type && ` (${MODE_INFO[msg.type as AIMode]?.name || msg.type})`}
+            <div style={{ fontSize: "48px", marginBottom: "16px" }}>✨</div>
+            <div style={{ fontSize: "16px", fontWeight: 500, marginBottom: "8px" }}>
+              무엇을 도와드릴까요?
             </div>
-            <div style={{ whiteSpace: "pre-wrap", lineHeight: "1.5" }}>{msg.content}</div>
-          </div>
-        ))}
-        
-        {/* 로딩 인디케이터 */}
-        {loading && (
-          <div style={{
-            padding: "10px 12px",
-            backgroundColor: "#f5f5f5",
-            borderRadius: "12px",
-            fontSize: "13px",
-            maxWidth: "90%",
-            marginBottom: "12px",
-            borderLeft: `3px solid ${MODE_INFO[mode].color}`,
-          }}>
-            <div style={{ fontSize: "10px", color: "#666", marginBottom: "4px", fontWeight: 500 }}>
-              🤖 AI ({MODE_INFO[mode].name})
+            <div style={{ fontSize: "13px", color: "#888" }}>
+              코드 작성, 디버깅, 리팩토링 등 무엇이든 물어보세요
             </div>
-            <div style={{ color: "#666" }}>⏳ 처리 중...</div>
           </div>
         )}
-        
-        {/* 자동 스크롤 앵커 */}
+
+        {messages.map((msg) => (
+          <div
+            key={msg.id}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: msg.role === "user" ? "flex-end" : "flex-start",
+            }}
+          >
+            <div
+              style={{
+                maxWidth: "90%",
+                padding: "12px 16px",
+                borderRadius: msg.role === "user" ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
+                backgroundColor:
+                  msg.role === "user"
+                    ? currentMode.color
+                    : msg.role === "system"
+                    ? "#2d4a3e"
+                    : "#2d2d2d",
+                color: msg.role === "user" ? "white" : "#d4d4d4",
+                fontSize: "13px",
+                lineHeight: "1.6",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+              }}
+            >
+              {msg.content}
+            </div>
+            <div
+              style={{
+                fontSize: "10px",
+                color: "#666",
+                marginTop: "4px",
+                paddingLeft: msg.role === "user" ? 0 : "8px",
+                paddingRight: msg.role === "user" ? "8px" : 0,
+              }}
+            >
+              {msg.role === "user" ? "You" : msg.role === "system" ? "System" : "AI"}
+              {msg.mode && ` • ${MODES.find((m) => m.id === msg.mode)?.label}`}
+            </div>
+          </div>
+        ))}
+
+        {loading && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "12px 16px",
+              backgroundColor: "#2d2d2d",
+              borderRadius: "16px 16px 16px 4px",
+              maxWidth: "90%",
+            }}
+          >
+            <div className="loading-dots" style={{ display: "flex", gap: "4px" }}>
+              <span style={{ animation: "pulse 1.4s infinite", animationDelay: "0s" }}>●</span>
+              <span style={{ animation: "pulse 1.4s infinite", animationDelay: "0.2s" }}>●</span>
+              <span style={{ animation: "pulse 1.4s infinite", animationDelay: "0.4s" }}>●</span>
+            </div>
+            <span style={{ fontSize: "13px", color: "#888" }}>생각하는 중...</span>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
-      {/* 입력 영역 - 하단 고정 */}
-      {!diff ? (
-        <AIInputPanel
-          workspaceId={workspaceId}
-          currentFile={currentFile}
-          fileContent={fileContent}
-          selection={selection}
-          disabled={loading || applying}
-          onResponse={handleAdvancedResponse}
-          onError={(err) => setError(err)}
-        />
-      ) : (
-        <div style={{ flexShrink: 0, padding: "12px", borderTop: "1px solid #eee", backgroundColor: "#fafafa" }}>
-          <div>
-            <div style={{ fontSize: "12px", fontWeight: "bold", marginBottom: "8px" }}>
-              📝 Diff Preview
-            </div>
-            <pre
+      {/* 패치 미리보기 */}
+      {pendingDiff && (
+        <div
+          style={{
+            margin: "0 16px 16px",
+            padding: "12px",
+            backgroundColor: "#1a2634",
+            borderRadius: "8px",
+            border: "1px solid #2d4a5e",
+          }}
+        >
+          <div style={{ fontSize: "12px", fontWeight: 600, marginBottom: "8px", color: "#58a6ff" }}>
+            📝 변경 사항 미리보기
+          </div>
+          <pre
+            style={{
+              fontSize: "11px",
+              backgroundColor: "#0d1117",
+              padding: "8px",
+              borderRadius: "4px",
+              overflow: "auto",
+              maxHeight: "150px",
+              margin: 0,
+            }}
+          >
+            {pendingDiff}
+          </pre>
+          <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
+            <button
+              onClick={handleApplyPatch}
+              disabled={applyingPatch}
               style={{
-                fontSize: "11px",
+                flex: 1,
                 padding: "8px",
-                backgroundColor: "#f5f5f5",
-                border: "1px solid #ddd",
-                borderRadius: "4px",
-                overflow: "auto",
-                maxHeight: "200px",
-                whiteSpace: "pre-wrap",
-                fontFamily: "monospace",
+                backgroundColor: applyingPatch ? "#333" : "#238636",
+                color: "white",
+                border: "none",
+                borderRadius: "6px",
+                cursor: applyingPatch ? "not-allowed" : "pointer",
+                fontSize: "12px",
+                fontWeight: 500,
               }}
             >
-              {diff}
-            </pre>
-            <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
-              <button
-                onClick={handleApplyPatch}
-                disabled={applying}
-                style={{
-                  flex: 1,
-                  padding: "8px 16px",
-                  fontSize: "13px",
-                  backgroundColor: applying ? "#ccc" : "#28a745",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "4px",
-                  cursor: applying ? "not-allowed" : "pointer",
-                }}
-              >
-                {applying ? "적용 중..." : "✅ 적용"}
-              </button>
-              <button
-                onClick={handleCancel}
-                disabled={applying}
-                style={{
-                  flex: 1,
-                  padding: "8px 16px",
-                  fontSize: "13px",
-                  backgroundColor: "#6c757d",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "4px",
-                  cursor: applying ? "not-allowed" : "pointer",
-                }}
-              >
-                ❌ 취소
-              </button>
-            </div>
+              {applyingPatch ? "적용 중..." : "✓ 적용"}
+            </button>
+            <button
+              onClick={() => setPendingDiff(null)}
+              disabled={applyingPatch}
+              style={{
+                flex: 1,
+                padding: "8px",
+                backgroundColor: "#333",
+                color: "#d4d4d4",
+                border: "1px solid #444",
+                borderRadius: "6px",
+                cursor: "pointer",
+                fontSize: "12px",
+              }}
+            >
+              ✕ 취소
+            </button>
           </div>
         </div>
       )}
 
+      {/* 에러 메시지 */}
       {error && (
         <div
           style={{
-            padding: "12px",
+            margin: "0 16px 16px",
+            padding: "10px 12px",
+            backgroundColor: "#3d1f1f",
+            border: "1px solid #5c2626",
+            borderRadius: "6px",
             fontSize: "12px",
-            color: "#d32f2f",
-            backgroundColor: "#ffebee",
-            border: "1px solid #ffcdd2",
-            borderRadius: "4px",
-            margin: "0 12px 12px",
+            color: "#f87171",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
           }}
         >
-          ⚠️ {error}
+          <span>⚠️ {error}</span>
+          <button
+            onClick={() => setError(null)}
+            style={{
+              background: "none",
+              border: "none",
+              color: "#f87171",
+              cursor: "pointer",
+              fontSize: "14px",
+            }}
+          >
+            ×
+          </button>
         </div>
       )}
+
+      {/* 입력 영역 */}
+      <div
+        style={{
+          padding: "16px",
+          borderTop: "1px solid #333",
+          backgroundColor: "#252525",
+        }}
+        onDrop={handleDrop}
+        onDragOver={(e) => e.preventDefault()}
+      >
+        {/* 컨텍스트 태그 */}
+        {contexts.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "10px" }}>
+            {contexts.map((ctx, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "4px 10px",
+                  backgroundColor: "#3d3d3d",
+                  borderRadius: "12px",
+                  fontSize: "11px",
+                }}
+              >
+                <span>
+                  {ctx.type === "file" && "📄"}
+                  {ctx.type === "folder" && "📁"}
+                  {ctx.type === "image" && "🖼️"}
+                </span>
+                <span style={{ maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {ctx.name || ctx.path}
+                </span>
+                <button
+                  onClick={() => removeContext(i)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#888",
+                    cursor: "pointer",
+                    padding: 0,
+                    fontSize: "12px",
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 입력 필드 */}
+        <div style={{ position: "relative" }}>
+          <textarea
+            ref={textareaRef}
+            value={message}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            placeholder="무엇이든 물어보세요... (Shift+Enter: 줄바꿈)"
+            disabled={loading}
+            style={{
+              width: "100%",
+              padding: "12px 100px 12px 12px",
+              fontSize: "13px",
+              backgroundColor: "#1e1e1e",
+              border: "1px solid #404040",
+              borderRadius: "12px",
+              color: "#d4d4d4",
+              resize: "none",
+              minHeight: "44px",
+              maxHeight: "150px",
+              outline: "none",
+              fontFamily: "inherit",
+              lineHeight: "1.5",
+              boxSizing: "border-box",
+            }}
+          />
+
+          {/* 버튼 그룹 (우측) */}
+          <div
+            style={{
+              position: "absolute",
+              right: "8px",
+              bottom: "8px",
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+            }}
+          >
+            {/* 이미지 업로드 */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              style={{
+                padding: "6px",
+                backgroundColor: "transparent",
+                border: "none",
+                borderRadius: "6px",
+                cursor: "pointer",
+                color: "#888",
+                fontSize: "16px",
+              }}
+              title="이미지 첨부"
+            >
+              🖼️
+            </button>
+
+            {/* 컨텍스트 추가 */}
+            <button
+              onClick={() => {
+                setMessage((prev) => prev + "@");
+                textareaRef.current?.focus();
+              }}
+              style={{
+                padding: "6px 8px",
+                backgroundColor: "transparent",
+                border: "none",
+                borderRadius: "6px",
+                cursor: "pointer",
+                color: "#888",
+                fontSize: "14px",
+                fontWeight: 600,
+              }}
+              title="컨텍스트 추가 (@)"
+            >
+              @
+            </button>
+
+            {/* 전송 버튼 */}
+            <button
+              onClick={handleSubmit}
+              disabled={loading || !message.trim()}
+              style={{
+                padding: "6px 12px",
+                backgroundColor: loading || !message.trim() ? "#404040" : currentMode.color,
+                border: "none",
+                borderRadius: "6px",
+                cursor: loading || !message.trim() ? "not-allowed" : "pointer",
+                color: "white",
+                fontSize: "14px",
+                fontWeight: 500,
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+              }}
+            >
+              {loading ? "..." : "↑"}
+            </button>
+          </div>
+
+          {/* 컨텍스트 자동완성 메뉴 */}
+          {showContextMenu && contextSuggestions.length > 0 && (
+            <div
+              ref={contextMenuRef}
+              style={{
+                position: "absolute",
+                bottom: "100%",
+                left: 0,
+                right: 0,
+                marginBottom: "4px",
+                backgroundColor: "#2d2d2d",
+                border: "1px solid #404040",
+                borderRadius: "8px",
+                maxHeight: "200px",
+                overflowY: "auto",
+                zIndex: 100,
+                boxShadow: "0 -4px 12px rgba(0,0,0,0.3)",
+              }}
+            >
+              {contextSuggestions.map((s, i) => (
+                <div
+                  key={i}
+                  onClick={() => selectContext(s)}
+                  style={{
+                    padding: "10px 12px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    cursor: "pointer",
+                    backgroundColor: i === selectedSuggestionIndex ? "#3d3d3d" : "transparent",
+                    borderBottom: i < contextSuggestions.length - 1 ? "1px solid #333" : "none",
+                  }}
+                >
+                  <span style={{ fontSize: "16px" }}>
+                    {s.type === "file" ? "📄" : "📁"}
+                  </span>
+                  <div>
+                    <div style={{ fontSize: "13px", fontWeight: 500 }}>{s.name}</div>
+                    {s.path && (
+                      <div style={{ fontSize: "11px", color: "#888" }}>{s.path}</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 하단 툴바 - 모드 선택 */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginTop: "10px",
+          }}
+        >
+          {/* 모드 선택 드롭다운 */}
+          <div style={{ position: "relative" }} ref={modeMenuRef}>
+            <button
+              onClick={() => setShowModeMenu(!showModeMenu)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "6px 12px",
+                backgroundColor: "#3d3d3d",
+                border: "1px solid #505050",
+                borderRadius: "6px",
+                cursor: "pointer",
+                color: "#d4d4d4",
+                fontSize: "12px",
+                fontWeight: 500,
+              }}
+            >
+              <span style={{ color: currentMode.color }}>{currentMode.icon}</span>
+              <span>{currentMode.label}</span>
+              <span style={{ fontSize: "10px", color: "#888" }}>▼</span>
+            </button>
+
+            {showModeMenu && (
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: "100%",
+                  left: 0,
+                  marginBottom: "4px",
+                  backgroundColor: "#2d2d2d",
+                  border: "1px solid #404040",
+                  borderRadius: "8px",
+                  overflow: "hidden",
+                  minWidth: "160px",
+                  boxShadow: "0 -4px 12px rgba(0,0,0,0.3)",
+                  zIndex: 100,
+                }}
+              >
+                {MODES.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => {
+                      setMode(m.id);
+                      setShowModeMenu(false);
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      width: "100%",
+                      padding: "10px 14px",
+                      backgroundColor: mode === m.id ? "#3d3d3d" : "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      color: "#d4d4d4",
+                      fontSize: "13px",
+                      textAlign: "left",
+                    }}
+                  >
+                    <span style={{ color: m.color, fontSize: "16px" }}>{m.icon}</span>
+                    <span style={{ fontWeight: mode === m.id ? 600 : 400 }}>{m.label}</span>
+                    {mode === m.id && (
+                      <span style={{ marginLeft: "auto", color: m.color }}>✓</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 단축키 안내 */}
+          <div style={{ fontSize: "11px", color: "#666" }}>
+            <span style={{ marginRight: "12px" }}>
+              <kbd style={{ backgroundColor: "#3d3d3d", padding: "2px 6px", borderRadius: "3px" }}>@</kbd>{" "}
+              파일 추가
+            </span>
+            <span>
+              <kbd style={{ backgroundColor: "#3d3d3d", padding: "2px 6px", borderRadius: "3px" }}>⌘V</kbd>{" "}
+              이미지
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* 숨겨진 파일 입력 */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleImageUpload(file);
+          e.target.value = "";
+        }}
+        style={{ display: "none" }}
+      />
+
+      {/* 애니메이션 스타일 */}
+      <style jsx>{`
+        @keyframes pulse {
+          0%, 80%, 100% { opacity: 0.3; }
+          40% { opacity: 1; }
+        }
+        textarea::placeholder {
+          color: #666;
+        }
+        textarea:focus {
+          border-color: ${currentMode.color} !important;
+        }
+      `}</style>
     </div>
   );
 }
