@@ -61,3 +61,66 @@ export async function getCurrentUser(token: string): Promise<User> {
   }
   return response.json();
 }
+
+export interface UpdateProfileRequest {
+  name?: string;
+  email?: string;
+}
+
+export async function updateProfile(token: string, data: UpdateProfileRequest): Promise<User> {
+  const response = await fetch(`${API_BASE_URL}/api/auth/profile`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to update profile: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function changePassword(
+  token: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/auth/password`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to change password: ${response.statusText}`);
+  }
+}
+
+export interface ContactRequest {
+  subject: string;
+  message: string;
+}
+
+export async function submitContactForm(token: string, data: ContactRequest): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/support/contact`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to submit contact form: ${response.statusText}`);
+  }
+}

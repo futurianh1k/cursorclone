@@ -1,0 +1,94 @@
+# VDE Web IDE Platform - LiteLLM Proxy Configuration
+# 용도: LLM 요청 라우팅, 로깅, Rate Limiting
+
+# ===========================================
+# 모델 정의
+# ===========================================
+model_list:
+  # 자동완성용 (Tabby가 직접 처리하므로 참고용)
+  - model_name: autocomplete
+    litellm_params:
+      model: openai/starcoder2-7b
+      api_base: http://tabby:8080/v1
+      api_key: "not-needed"
+    model_info:
+      description: "Code autocomplete model via Tabby"
+      
+  # Chat/Edit용 - 메인 모델
+  - model_name: chat
+    litellm_params:
+      model: openai/deepseek-coder-6.7b-instruct
+      api_base: http://vllm:8000/v1
+      api_key: "not-needed"
+      max_tokens: 4096
+      temperature: 0.1
+    model_info:
+      description: "Chat and code editing model"
+      
+  # Chat/Edit용 - 대형 모델 (리소스 여유 시)
+  - model_name: chat-large
+    litellm_params:
+      model: openai/deepseek-coder-33b-instruct
+      api_base: http://vllm-large:8000/v1
+      api_key: "not-needed"
+      max_tokens: 8192
+      temperature: 0.1
+    model_info:
+      description: "Large chat model for complex tasks"
+
+# ===========================================
+# 일반 설정
+# ===========================================
+litellm_settings:
+  # 드롭 요청 허용 (과부하 시)
+  drop_params: true
+  
+  # 타임아웃
+  request_timeout: 120
+  
+  # 재시도
+  num_retries: 2
+  
+  # 캐싱 (선택적)
+  cache: false
+  
+  # 성공/실패 콜백 (로깅용)
+  success_callback: ["langfuse"]  # 또는 커스텀 콜백
+  failure_callback: ["langfuse"]
+
+# ===========================================
+# 라우터 설정
+# ===========================================
+router_settings:
+  # 라우팅 전략
+  routing_strategy: "simple-shuffle"  # 또는 "least-busy"
+  
+  # 모델 그룹 타임아웃
+  model_group_alias:
+    default: "chat"
+
+# ===========================================
+# Rate Limiting
+# ===========================================
+general_settings:
+  master_key: ${LITELLM_MASTER_KEY}
+  
+  # 분당 요청 제한 (사용자별)
+  max_parallel_requests: 10
+  
+  # 토큰 예산 (일별)
+  max_budget: 1000000  # 토큰
+  budget_duration: "1d"
+
+# ===========================================
+# 로깅 설정
+# ===========================================
+# 주의: 프롬프트/응답 본문은 저장하지 않음 (보안)
+environment_variables:
+  LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-""}
+  LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-""}
+  LANGFUSE_HOST: ${LANGFUSE_HOST:-"http://langfuse:3000"}
+  
+  # 메타데이터만 로깅
+  LITELLM_LOG_RESPONSE_BODY: "false"
+  LITELLM_LOG_REQUEST_BODY: "false"

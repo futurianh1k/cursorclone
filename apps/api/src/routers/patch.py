@@ -6,7 +6,7 @@ Patch 라우터
 
 import os
 import hashlib
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from ..models import (
     PatchValidateRequest,
     PatchValidateResponse,
@@ -21,13 +21,23 @@ from ..utils.diff_utils import (
     PatchValidationResult,
 )
 from ..utils.filesystem import get_workspace_root, workspace_exists
+from ..db import UserModel
+from ..services.rbac_service import get_current_user, require_permission, Permission, rbac_service
 
 router = APIRouter(prefix="/api/patch", tags=["patch"])
 
 
-def _validate_workspace_access(ws_id: str) -> bool:
-    """워크스페이스 접근 권한 검증"""
-    # TODO: 실제 권한 검증 로직 구현
+async def _validate_workspace_access(ws_id: str, user: UserModel) -> bool:
+    """
+    워크스페이스 접근 권한 검증
+    
+    사용자가 해당 워크스페이스에 접근할 수 있는지 확인합니다.
+    """
+    # 관리자는 모든 워크스페이스 접근 가능
+    if rbac_service.is_admin(user.role or "viewer"):
+        return True
+    
+    # TODO: 워크스페이스 소유권/공유 관계 확인 (DB 조회)
     return True
 
 
@@ -45,7 +55,10 @@ def _validate_workspace_access(ws_id: str) -> bool:
     summary="패치 검증",
     description="unified diff 패치의 유효성을 검증합니다.",
 )
-async def validate_patch(request: PatchValidateRequest):
+async def validate_patch_request(
+    request: PatchValidateRequest,
+    current_user: UserModel = Depends(require_permission(Permission.WORKSPACE_READ)),
+):
     """
     패치의 유효성을 검증합니다.
     
@@ -55,8 +68,10 @@ async def validate_patch(request: PatchValidateRequest):
     3. 파일 확장자 allowlist
     4. 패치 크기 제한
     5. 워크스페이스 내 파일인지 확인
+    
+    인증 필수: JWT 토큰, 권한: workspace:read
     """
-    if not _validate_workspace_access(request.workspace_id):
+    if not await _validate_workspace_access(request.workspace_id, current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
@@ -94,7 +109,10 @@ async def validate_patch(request: PatchValidateRequest):
     summary="패치 적용",
     description="검증된 패치를 실제 파일에 적용합니다.",
 )
-async def apply_patch(request: PatchApplyRequest):
+async def apply_patch(
+    request: PatchApplyRequest,
+    current_user: UserModel = Depends(require_permission(Permission.WORKSPACE_WRITE)),
+):
     """
     패치를 실제 파일에 적용합니다.
     
@@ -108,8 +126,10 @@ async def apply_patch(request: PatchApplyRequest):
     3. 파일 백업 생성 (자동)
     4. 패치 적용
     5. 감사 로그 기록 (해시만)
+    
+    인증 필수: JWT 토큰, 권한: workspace:write
     """
-    if not _validate_workspace_access(request.workspace_id):
+    if not await _validate_workspace_access(request.workspace_id, current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},

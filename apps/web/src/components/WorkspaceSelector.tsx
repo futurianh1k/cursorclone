@@ -35,8 +35,9 @@ export default function WorkspaceSelector({
         branch: branch.trim() || undefined,
       });
       onWorkspaceSelect(workspace);
-    } catch (err: any) {
-      setError(err.message || "저장소 클론에 실패했습니다");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "저장소 클론에 실패했습니다";
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -54,8 +55,9 @@ export default function WorkspaceSelector({
     try {
       const workspace = await createWorkspace(workspaceName.trim());
       onWorkspaceSelect(workspace);
-    } catch (err: any) {
-      setError(err.message || "워크스페이스 생성에 실패했습니다");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "워크스페이스 생성에 실패했습니다";
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -64,6 +66,8 @@ export default function WorkspaceSelector({
   if (mode === "select") {
     return (
       <div
+        role="main"
+        aria-labelledby="workspace-title"
         style={{
           display: "flex",
           flexDirection: "column",
@@ -74,16 +78,23 @@ export default function WorkspaceSelector({
           padding: "40px",
         }}
       >
-        <div style={{ fontSize: "24px", fontWeight: 600, marginBottom: "8px" }}>
+        <h1
+          id="workspace-title"
+          style={{ fontSize: "24px", fontWeight: 600, marginBottom: "8px" }}
+        >
           워크스페이스 선택
-        </div>
-        <div style={{ fontSize: "14px", color: "#666", marginBottom: "32px" }}>
+        </h1>
+        <p style={{ fontSize: "14px", color: "#666", marginBottom: "32px" }}>
           새 워크스페이스를 생성하거나 GitHub 저장소를 클론하세요
-        </div>
+        </p>
 
-        <div style={{ display: "flex", gap: "12px", width: "100%", maxWidth: "400px" }}>
+        <nav
+          aria-label="워크스페이스 생성 옵션"
+          style={{ display: "flex", gap: "12px", width: "100%", maxWidth: "400px" }}
+        >
           <button
             onClick={() => setMode("github")}
+            aria-label="GitHub 저장소 클론하기"
             style={{
               flex: 1,
               padding: "12px 24px",
@@ -100,6 +111,7 @@ export default function WorkspaceSelector({
           </button>
           <button
             onClick={() => setMode("create")}
+            aria-label="빈 워크스페이스 생성하기"
             style={{
               flex: 1,
               padding: "12px 24px",
@@ -114,7 +126,7 @@ export default function WorkspaceSelector({
           >
             빈 워크스페이스 생성
           </button>
-        </div>
+        </nav>
       </div>
     );
   }

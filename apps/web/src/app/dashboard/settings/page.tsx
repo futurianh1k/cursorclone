@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { getCurrentUser, User } from "@/lib/auth-api";
+import { getCurrentUser, updateProfile, User } from "@/lib/auth-api";
 
 export default function SettingsPage() {
   const [user, setUser] = useState<User | null>(null);
@@ -36,11 +36,26 @@ export default function SettingsPage() {
 
   const handleSave = async () => {
     setSaving(true);
-    // TODO: API 호출
-    setTimeout(() => {
-      setSaving(false);
+    try {
+      const token = localStorage.getItem("access_token");
+      if (!token) {
+        alert("로그인이 필요합니다");
+        return;
+      }
+      
+      const updatedUser = await updateProfile(token, {
+        name: formData.name,
+        email: formData.email,
+      });
+      
+      setUser(updatedUser);
       alert("설정이 저장되었습니다");
-    }, 1000);
+    } catch (err) {
+      console.error("Failed to save settings:", err);
+      alert(err instanceof Error ? err.message : "설정 저장에 실패했습니다");
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (loading) {

@@ -1,0 +1,102 @@
+# VDE Web IDE Platform - Tabby Deployment
+# 용도: AI 자동완성 서버 (GPU)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tabby
+  labels:
+    app: tabby
+spec:
+  replicas: 2  # 고가용성
+  selector:
+    matchLabels:
+      app: tabby
+  template:
+    metadata:
+      labels:
+        app: tabby
+    spec:
+      # GPU 노드에 스케줄링
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      
+      tolerations:
+        - key: "nvidia.com/gpu"
+          operator: "Exists"
+          effect: "NoSchedule"
+      
+      containers:
+        - name: tabby
+          image: tabbyml/tabby:0.21.0
+          imagePullPolicy: IfNotPresent
+          
+          args:
+            - serve
+            - --model
+            - $(MODEL_NAME)
+            - --device
+            - cuda
+            - --parallelism
+            - "1"
+          
+          env:
+            - name: MODEL_NAME
+              value: "StarCoder2-7B"  # 또는 환경별로 변경
+            - name: TABBY_DISABLE_USAGE_COLLECTION
+              value: "1"
+            - name: TABBY_WEBSERVER_TIMEOUT
+              value: "30"
+          
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          
+          resources:
+            requests:
+              cpu: "2"
+              memory: "8Gi"
+              nvidia.com/gpu: 1
+            limits:
+              cpu: "4"
+              memory: "24Gi"
+              nvidia.com/gpu: 1
+          
+          volumeMounts:
+            - name: model-cache
+              mountPath: /data
+          
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 120  # 모델 로딩 시간
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: tabby-model-cache
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tabby-model-cache
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: fast-ssd
+  resources:
+    requests:
+      storage: 50Gi

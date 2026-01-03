@@ -1,0 +1,117 @@
+{
+  // ===========================================
+  // VDE Web IDE - VS Code Settings
+  // 용도: 보안 및 성능 최적화 기본 설정
+  // ===========================================
+
+  // -----------------------------------------
+  // 자동 저장 (세션 손실 방지)
+  // -----------------------------------------
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 60000,
+
+  // -----------------------------------------
+  // 성능 최적화
+  // -----------------------------------------
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/dist/**": true,
+    "**/build/**": true,
+    "**/.next/**": true,
+    "**/coverage/**": true,
+    "**/__pycache__/**": true,
+    "**/.pytest_cache/**": true,
+    "**/venv/**": true,
+    "**/.venv/**": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/build": true,
+    "**/coverage": true,
+    "**/.git": true,
+    "**/__pycache__": true
+  },
+  "files.exclude": {
+    "**/.git": true,
+    "**/.DS_Store": true,
+    "**/Thumbs.db": true
+  },
+
+  // -----------------------------------------
+  // 보안 설정
+  // -----------------------------------------
+  "telemetry.telemetryLevel": "off",
+  "update.mode": "none",
+  "extensions.autoUpdate": false,
+  "extensions.autoCheckUpdates": false,
+  "workbench.enableExperiments": false,
+  "workbench.settings.enableNaturalLanguageSearch": false,
+
+  // 외부 링크 열기 제한
+  "workbench.externalUriOpeners": {},
+  
+  // -----------------------------------------
+  // 에디터 설정
+  // -----------------------------------------
+  "editor.fontSize": 14,
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "editor.formatOnSave": true,
+  "editor.formatOnPaste": false,
+  "editor.minimap.enabled": true,
+  "editor.wordWrap": "on",
+  "editor.bracketPairColorization.enabled": true,
+  "editor.guides.bracketPairs": true,
+  "editor.suggestSelection": "first",
+  "editor.acceptSuggestionOnCommitCharacter": true,
+  "editor.acceptSuggestionOnEnter": "on",
+
+  // -----------------------------------------
+  // 터미널 설정
+  // -----------------------------------------
+  "terminal.integrated.defaultProfile.linux": "bash",
+  "terminal.integrated.scrollback": 10000,
+  "terminal.integrated.copyOnSelection": true,
+
+  // -----------------------------------------
+  // Git 설정
+  // -----------------------------------------
+  "git.autofetch": true,
+  "git.confirmSync": false,
+  "git.enableSmartCommit": true,
+
+  // -----------------------------------------
+  // Tabby (자동완성) 설정
+  // -----------------------------------------
+  "tabby.endpoint": "http://tabby:8080",
+  "tabby.inlineCompletion.triggerMode": "auto",
+
+  // -----------------------------------------
+  // Continue (Chat/Edit) 설정
+  // -----------------------------------------
+  "continue.telemetryEnabled": false,
+
+  // -----------------------------------------
+  // 언어별 설정
+  // -----------------------------------------
+  "[python]": {
+    "editor.tabSize": 4,
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "ms-python.black-formatter"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[yaml]": {
+    "editor.tabSize": 2
+  }
+}

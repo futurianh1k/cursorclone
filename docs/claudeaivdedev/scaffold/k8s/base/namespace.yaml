@@ -1,0 +1,8 @@
+# VDE Web IDE Platform - Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vde-ide
+  labels:
+    name: vde-ide
+    environment: base

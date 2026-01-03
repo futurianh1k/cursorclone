@@ -55,6 +55,13 @@ class UserModel(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     last_login_at = Column(DateTime(timezone=True))
     
+    # 2FA 관련 필드
+    totp_enabled = Column(Boolean, default=False)  # 2FA 활성화 여부
+    totp_secret = Column(Text)  # TOTP 시크릿 (암호화됨)
+    totp_secret_pending = Column(Text)  # 설정 중인 시크릿 (확인 전)
+    backup_code_hashes = Column(JSONB)  # 백업 코드 해시 목록
+    backup_code_hashes_pending = Column(JSONB)  # 설정 중인 백업 코드 해시
+    
     # 관계
     organization = relationship("OrganizationModel", back_populates="users")
     workspaces = relationship("WorkspaceModel", back_populates="owner")
@@ -81,11 +88,16 @@ class WorkspaceModel(Base):
     owner = relationship("UserModel", back_populates="workspaces")
     organization = relationship("OrganizationModel", back_populates="workspaces")
     
-    # 인덱스
+    # 인덱스 (최적화됨)
     __table_args__ = (
-        Index("idx_workspace_owner", "owner_id", "status"),
-        Index("idx_workspace_org", "org_id", "status"),
-        Index("idx_workspace_last_accessed", "last_accessed_at"),
+        # 소유자별 워크스페이스 조회 (상태 필터링)
+        Index("idx_workspace_owner_status", "owner_id", "status"),
+        # 조직별 워크스페이스 조회 (상태 필터링)
+        Index("idx_workspace_org_status", "org_id", "status"),
+        # 마지막 접근 시간 기반 조회 (상태 포함 - 자동 정지용)
+        Index("idx_workspace_last_accessed_status", "status", "last_accessed_at"),
+        # 생성일 기반 정렬 (소유자별)
+        Index("idx_workspace_owner_created", "owner_id", "created_at"),
     )
 
 
@@ -115,10 +127,18 @@ class AuditLogModel(Base):
     tokens_used = Column(Integer)
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     
-    # 인덱스
+    # 인덱스 (최적화됨)
     __table_args__ = (
+        # 사용자별 시간순 조회
         Index("idx_audit_user_time", "user_id", "timestamp"),
+        # 워크스페이스별 시간순 조회
         Index("idx_audit_workspace_time", "workspace_id", "timestamp"),
+        # 액션별 조회 (통계, 필터링용)
+        Index("idx_audit_action", "action"),
+        # 액션 + 시간 복합 인덱스 (액션별 시간순 조회)
+        Index("idx_audit_action_time", "action", "timestamp"),
+        # 사용자 + 액션 복합 인덱스 (사용자별 액션 통계)
+        Index("idx_audit_user_action", "user_id", "action"),
     )
 
 

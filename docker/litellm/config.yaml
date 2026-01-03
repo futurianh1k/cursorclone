@@ -1,0 +1,104 @@
+# VDE Web IDE Platform - LiteLLM Proxy Configuration
+# 역할: LLM 요청 라우팅, 로깅, Rate Limiting
+# 출처: docs/claudeaivdedev/scaffold/configs/litellm/config.yaml
+
+# ===========================================
+# 모델 정의
+# ===========================================
+model_list:
+  # Chat/Edit용 - 메인 모델 (기존 vLLM 사용)
+  - model_name: "chat"
+    litellm_params:
+      model: "openai/Qwen/Qwen2.5-Coder-7B-Instruct"
+      api_base: "http://cursor-poc-vllm:8000/v1"
+      api_key: "not-needed"
+      max_tokens: 4096
+      temperature: 0.1
+    model_info:
+      description: "Chat and code editing model (vLLM)"
+      
+  # Tabby 자동완성 (참고용 - Tabby가 직접 처리)
+  - model_name: "autocomplete"
+    litellm_params:
+      model: "openai/StarCoder2-3B"
+      api_base: "http://cursor-poc-tabby:8080/v1"
+      api_key: "not-needed"
+    model_info:
+      description: "Code autocomplete via Tabby"
+
+  # 기본 모델 별칭
+  - model_name: "gpt-4"
+    litellm_params:
+      model: "openai/Qwen/Qwen2.5-Coder-7B-Instruct"
+      api_base: "http://cursor-poc-vllm:8000/v1"
+      api_key: "not-needed"
+    model_info:
+      description: "Alias for chat model (Continue compatibility)"
+
+  - model_name: "gpt-3.5-turbo"
+    litellm_params:
+      model: "openai/Qwen/Qwen2.5-Coder-7B-Instruct"
+      api_base: "http://cursor-poc-vllm:8000/v1"
+      api_key: "not-needed"
+    model_info:
+      description: "Alias for chat model (Continue compatibility)"
+
+# ===========================================
+# 일반 설정
+# ===========================================
+litellm_settings:
+  # 드롭 요청 허용 (과부하 시)
+  drop_params: true
+  
+  # 타임아웃 (초)
+  request_timeout: 120
+  
+  # 재시도
+  num_retries: 2
+  
+  # 캐싱 비활성화 (PoC)
+  cache: false
+  
+  # 스트리밍 허용
+  stream: true
+
+# ===========================================
+# 라우터 설정
+# ===========================================
+router_settings:
+  # 라우팅 전략
+  routing_strategy: "simple-shuffle"
+  
+  # 기본 모델
+  model_group_alias:
+    default: "chat"
+  
+  # 폴백 모델 (선택적)
+  # fallbacks:
+  #   - model_name: "chat"
+  #     fallback_model: "chat-backup"
+
+# ===========================================
+# Rate Limiting (보안)
+# ===========================================
+general_settings:
+  # 마스터 키 (환경변수에서 로드)
+  master_key: "sk-cursor-poc-key"
+  
+  # 병렬 요청 제한
+  max_parallel_requests: 20
+  
+  # 토큰 예산 (일별, 선택적)
+  # max_budget: 1000000
+  # budget_duration: "1d"
+  
+  # 디버그 모드 (프로덕션에서는 비활성화)
+  debug: false
+
+# ===========================================
+# 보안: 프롬프트/응답 로깅 정책
+# ===========================================
+# 주의: 금융권 환경에서는 프롬프트/응답 본문 저장 금지
+# 환경변수로 제어:
+#   LITELLM_LOG_REQUEST_BODY: "false"
+#   LITELLM_LOG_RESPONSE_BODY: "false"

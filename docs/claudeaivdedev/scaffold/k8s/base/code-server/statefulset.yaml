@@ -1,0 +1,99 @@
+# VDE Web IDE Platform - code-server StatefulSet
+# 용도: 사용자별 IDE 인스턴스 (1인 1 Pod)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: code-server
+  labels:
+    app: code-server
+spec:
+  serviceName: code-server
+  replicas: 1  # 오토스케일링으로 조정
+  selector:
+    matchLabels:
+      app: code-server
+  template:
+    metadata:
+      labels:
+        app: code-server
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      
+      containers:
+        - name: code-server
+          image: codercom/code-server:4.96.4
+          imagePullPolicy: IfNotPresent
+          
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          
+          env:
+            - name: PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: code-server-secrets
+                  key: password
+            # 사용자 정보 (동적 주입)
+            - name: USER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['user-id']
+          
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          
+          volumeMounts:
+            - name: workspace
+              mountPath: /home/coder
+            - name: settings
+              mountPath: /home/coder/.local/share/code-server/User/settings.json
+              subPath: settings.json
+            - name: continue-config
+              mountPath: /home/coder/.continue/config.json
+              subPath: config.json
+          
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+      
+      volumes:
+        - name: settings
+          configMap:
+            name: code-server-config
+        - name: continue-config
+          configMap:
+            name: continue-config
+
+  volumeClaimTemplates:
+    - metadata:
+        name: workspace
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: fast-ssd  # 실제 StorageClass로 변경
+        resources:
+          requests:
+            storage: 20Gi

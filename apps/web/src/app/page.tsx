@@ -6,6 +6,7 @@ import FileTree from "@/components/FileTree";
 import CodeEditor from "@/components/CodeEditor";
 import AIChat from "@/components/AIChat";
 import WorkspaceSelector from "@/components/WorkspaceSelector";
+import { WebIDELauncher } from "@/components/WebIDELauncher";
 import { listWorkspaces, Workspace } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth-api";
 
@@ -113,27 +114,36 @@ export default function Home() {
               +
             </button>
           </div>
-          <select
-            value={workspaceId}
-            onChange={(e) => {
-              setWorkspaceId(e.target.value);
-              setCurrentFile(undefined);
-              setSelection(null);
-            }}
-            style={{
-              width: "100%",
-              padding: "4px 8px",
-              fontSize: "12px",
-              border: "1px solid #ddd",
-              borderRadius: "4px",
-            }}
-          >
-            {workspaces.map((ws) => (
-              <option key={ws.workspaceId} value={ws.workspaceId}>
-                {ws.name}
-              </option>
-            ))}
-          </select>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <select
+              value={workspaceId}
+              onChange={(e) => {
+                setWorkspaceId(e.target.value);
+                setCurrentFile(undefined);
+                setSelection(null);
+              }}
+              style={{
+                flex: 1,
+                padding: "4px 8px",
+                fontSize: "12px",
+                border: "1px solid #ddd",
+                borderRadius: "4px",
+              }}
+            >
+              {workspaces.map((ws) => (
+                <option key={ws.workspaceId} value={ws.workspaceId}>
+                  {ws.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {/* Web IDE 열기 버튼 */}
+          <div style={{ marginTop: "8px" }}>
+            <WebIDELauncher
+              workspaceId={workspaceId}
+              workspaceName={workspaces.find(ws => ws.workspaceId === workspaceId)?.name}
+            />
+          </div>
         </div>
         <div style={{ flex: 1, overflow: "hidden" }}>
           <FileTree workspaceId={workspaceId} onFileSelect={handleFileSelect} />

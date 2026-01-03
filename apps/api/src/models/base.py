@@ -50,7 +50,9 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     """로그인 응답"""
     access_token: str = Field(..., alias="accessToken")
+    refresh_token: Optional[str] = Field(default=None, alias="refreshToken", description="리프레시 토큰 (토큰 갱신용)")
     token_type: str = Field(default="bearer", alias="tokenType")
+    expires_in: Optional[int] = Field(default=None, alias="expiresIn", description="액세스 토큰 만료 시간 (초)")
     user: "UserResponse"
     
     class Config:
