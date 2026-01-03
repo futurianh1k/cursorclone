@@ -5,7 +5,7 @@
 
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, and_
+from sqlalchemy import select, update, delete, and_
 from sqlalchemy.orm import selectinload
 from datetime import datetime
 
@@ -152,9 +152,47 @@ class WorkspaceService:
         workspace = await self.get_workspace(workspace_id)
         if not workspace:
             return
-        
+
         await self.update_workspace_status(workspace_id, "deleted")
-        
+
         # 캐시 무효화
         await cache_service.invalidate_workspace_list(workspace.owner_id)
         await cache_service.invalidate_file_tree(workspace_id)
+
+    async def hard_delete_workspace(self, workspace_id: str) -> bool:
+        """
+        워크스페이스 완전 삭제 (데이터베이스에서 영구 삭제)
+
+        Args:
+            workspace_id: 삭제할 워크스페이스 ID
+
+        Returns:
+            bool: 삭제 성공 여부
+        """
+        workspace = await self.get_workspace(workspace_id)
+        if not workspace:
+            return False
+
+        owner_id = workspace.owner_id
+
+        # 관련 리소스 메타데이터 삭제
+        await self.db.execute(
+            delete(WorkspaceResourceModel).where(
+                WorkspaceResourceModel.workspace_id == workspace_id
+            )
+        )
+
+        # 워크스페이스 삭제
+        await self.db.execute(
+            delete(WorkspaceModel).where(
+                WorkspaceModel.workspace_id == workspace_id
+            )
+        )
+
+        await self.db.flush()
+
+        # 캐시 무효화
+        await cache_service.invalidate_workspace_list(owner_id)
+        await cache_service.invalidate_file_tree(workspace_id)
+
+        return True

@@ -275,6 +275,48 @@ def build_file_tree(
     return items
 
 
+def delete_workspace_directory(workspace_root: Path) -> None:
+    """
+    워크스페이스 디렉토리 완전 삭제
+
+    Args:
+        workspace_root: 삭제할 워크스페이스 루트 Path
+
+    Raises:
+        ValueError: 경로 검증 실패
+        OSError: 파일시스템 오류
+    """
+    # 경로 검증 - /workspaces 내부인지 확인
+    workspaces_base = Path("/workspaces")
+    try:
+        resolved = workspace_root.resolve()
+        base_resolved = workspaces_base.resolve()
+
+        if not str(resolved).startswith(str(base_resolved)):
+            raise ValueError("Cannot delete path outside /workspaces")
+
+        # /workspaces 자체 삭제 방지
+        if resolved == base_resolved:
+            raise ValueError("Cannot delete /workspaces root directory")
+
+    except Exception as e:
+        raise ValueError(f"Path validation failed: {e}")
+
+    # 디렉토리 존재 여부 확인
+    if not workspace_root.exists():
+        # 이미 삭제된 경우 에러 없이 리턴
+        return
+
+    if not workspace_root.is_dir():
+        raise ValueError("Path is not a directory")
+
+    # 디렉토리 완전 삭제
+    try:
+        shutil.rmtree(workspace_root)
+    except Exception as e:
+        raise OSError(f"Failed to delete workspace directory: {e}")
+
+
 def create_workspace_directory(workspace_id: str, workspace_root: Path) -> None:
     """
     워크스페이스 디렉토리 생성
