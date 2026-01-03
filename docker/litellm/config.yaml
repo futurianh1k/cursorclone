@@ -82,8 +82,12 @@ router_settings:
 # Rate Limiting (보안)
 # ===========================================
 general_settings:
-  # 마스터 키 (환경변수에서 로드)
-  master_key: "sk-cursor-poc-key"
+  # 마스터 키 (환경변수에서 로드, PoC에서는 비활성화 가능)
+  # 프로덕션에서는 반드시 활성화
+  # master_key: "sk-cursor-poc-key"
+  
+  # Health 체크는 인증 없이 허용
+  health_check_no_auth: true
   
   # 병렬 요청 제한
   max_parallel_requests: 20
@@ -93,7 +97,11 @@ general_settings:
   # budget_duration: "1d"
   
   # 디버그 모드 (프로덕션에서는 비활성화)
-  debug: false
+  debug: true
+  
+  # 인증 비활성화 (PoC 전용, 프로덕션에서는 master_key 사용)
+  # 내부 네트워크에서만 접근 가능하므로 PoC에서는 비활성화
+  disable_auth: true
 
 # ===========================================
 # 보안: 프롬프트/응답 로깅 정책
