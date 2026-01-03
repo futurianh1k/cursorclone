@@ -791,3 +791,196 @@ export async function suggestContext(
   
   return response.json();
 }
+
+// ============================================================
+// IDE Container (code-server) API
+// ============================================================
+
+export type IDEContainerStatus = "pending" | "starting" | "running" | "stopping" | "stopped" | "error";
+export type IDEType = "code-server" | "jupyter" | "theia";
+
+export interface IDEContainerConfig {
+  cpuLimit?: string;
+  memoryLimit?: string;
+  storageSize?: string;
+  gpuEnabled?: boolean;
+  extensions?: string[];
+  environment?: Record<string, string>;
+}
+
+export interface CreateIDEContainerRequest {
+  workspaceId: string;
+  ideType?: IDEType;
+  config?: IDEContainerConfig;
+}
+
+export interface IDEContainerResponse {
+  containerId: string;
+  workspaceId: string;
+  userId: string;
+  ideType: IDEType;
+  status: IDEContainerStatus;
+  url?: string;
+  internalUrl?: string;
+  port?: number;
+  createdAt: string;
+  lastAccessed?: string;
+  config?: IDEContainerConfig;
+}
+
+export interface IDEContainerListResponse {
+  containers: IDEContainerResponse[];
+  total: number;
+}
+
+export interface StartIDEContainerResponse {
+  containerId: string;
+  status: IDEContainerStatus;
+  url: string;
+  token?: string;
+  expiresAt?: string;
+}
+
+export interface StopIDEContainerResponse {
+  containerId: string;
+  status: IDEContainerStatus;
+  message: string;
+}
+
+export interface IDEHealthResponse {
+  totalContainers: number;
+  runningContainers: number;
+  availableCapacity: number;
+  avgCpuUsage: number;
+  avgMemoryUsage: number;
+}
+
+/**
+ * IDE 컨테이너 생성
+ */
+export async function createIDEContainer(request: CreateIDEContainerRequest): Promise<IDEContainerResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/ide/containers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail || `Failed to create IDE container: ${response.statusText}`);
+  }
+  
+  return response.json();
+}
+
+/**
+ * IDE 컨테이너 목록 조회
+ */
+export async function listIDEContainers(workspaceId?: string): Promise<IDEContainerListResponse> {
+  const params = new URLSearchParams();
+  if (workspaceId) params.append("workspace_id", workspaceId);
+  
+  const response = await fetch(`${API_BASE_URL}/api/ide/containers?${params.toString()}`);
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail || `Failed to list IDE containers: ${response.statusText}`);
+  }
+  
+  return response.json();
+}
+
+/**
+ * IDE 컨테이너 상세 조회
+ */
+export async function getIDEContainer(containerId: string): Promise<IDEContainerResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/ide/containers/${containerId}`);
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail || `Failed to get IDE container: ${response.statusText}`);
+  }
+  
+  return response.json();
+}
+
+/**
+ * IDE 컨테이너 시작
+ */
+export async function startIDEContainer(containerId: string): Promise<StartIDEContainerResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/ide/containers/${containerId}/start`, {
+    method: "POST",
+  });
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail || `Failed to start IDE container: ${response.statusText}`);
+  }
+  
+  return response.json();
+}
+
+/**
+ * IDE 컨테이너 중지
+ */
+export async function stopIDEContainer(containerId: string): Promise<StopIDEContainerResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/ide/containers/${containerId}/stop`, {
+    method: "POST",
+  });
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail || `Failed to stop IDE container: ${response.statusText}`);
+  }
+  
+  return response.json();
+}
+
+/**
+ * IDE 컨테이너 삭제
+ */
+export async function deleteIDEContainer(containerId: string): Promise<{ success: boolean; message: string }> {
+  const response = await fetch(`${API_BASE_URL}/api/ide/containers/${containerId}`, {
+    method: "DELETE",
+  });
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail || `Failed to delete IDE container: ${response.statusText}`);
+  }
+  
+  return response.json();
+}
+
+/**
+ * 워크스페이스의 IDE URL 조회 (또는 생성)
+ * PoC에서는 공유 code-server 인스턴스 URL 반환
+ */
+export async function getWorkspaceIDEUrl(workspaceId: string): Promise<{
+  url: string;
+  containerId: string | null;
+  status: "existing" | "shared" | "created";
+}> {
+  const response = await fetch(`${API_BASE_URL}/api/ide/workspace/${workspaceId}/url`);
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail || `Failed to get IDE URL: ${response.statusText}`);
+  }
+  
+  return response.json();
+}
+
+/**
+ * IDE 서비스 상태 조회
+ */
+export async function getIDEHealth(): Promise<IDEHealthResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/ide/health`);
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail || `Failed to get IDE health: ${response.statusText}`);
+  }
+  
+  return response.json();
+}

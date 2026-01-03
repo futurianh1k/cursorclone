@@ -11,6 +11,7 @@ from .ws import router as ws_router
 from .admin import router as admin_router
 from .container import router as container_router
 from .ssh import router as ssh_router
+from .ide import router as ide_router
 
 __all__ = [
     "auth_router",
@@ -22,4 +23,5 @@ __all__ = [
     "admin_router",
     "container_router",
     "ssh_router",
+    "ide_router",
 ]
