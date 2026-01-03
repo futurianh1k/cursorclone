@@ -1700,12 +1700,22 @@ async def advanced_chat(request: AIAdvancedChatRequest):
         messages.append({"role": "user", "content": user_message})
         
         # LLM 호출
-        response = await llm_client.chat(messages=messages)
+        llm_response = await llm_client.chat(messages=messages)
+        
+        # OpenAI API 응답 형식에서 content 추출
+        response_content = ""
+        tokens_used = 0
+        
+        if "choices" in llm_response and len(llm_response["choices"]) > 0:
+            response_content = llm_response["choices"][0].get("message", {}).get("content", "")
+        
+        if "usage" in llm_response:
+            tokens_used = llm_response["usage"].get("total_tokens", 0)
         
         return AIAdvancedChatResponse(
-            response=response.content,
+            response=response_content,
             mode=request.mode,
-            tokens_used=response.usage.total_tokens if response.usage else 0,
+            tokens_used=tokens_used,
         )
         
     except (LLMTimeoutError, LLMError) as e:
