@@ -15,7 +15,7 @@ import tempfile
 import logging
 from pathlib import Path
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, status, Query, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, status, Query, UploadFile, File, Form, Depends
 from fastapi.responses import FileResponse
 from ..models import (
     FileTreeResponse,
@@ -34,6 +34,8 @@ from ..utils.filesystem import (
     build_file_tree,
     workspace_exists,
 )
+from ..db import UserModel
+from ..services.rbac_service import get_current_user, require_permission, Permission
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +62,22 @@ ALLOWED_EXTENSIONS = {
 router = APIRouter(prefix="/api/workspaces/{ws_id}/files", tags=["files"])
 
 
-def _validate_workspace_access(ws_id: str) -> bool:
-    """워크스페이스 접근 권한 검증"""
-    # TODO: 실제 권한 검증 로직 구현
+async def _validate_workspace_access(ws_id: str, user: UserModel) -> bool:
+    """
+    워크스페이스 접근 권한 검증
+    
+    사용자가 해당 워크스페이스에 접근할 수 있는지 확인합니다.
+    - 관리자는 모든 워크스페이스에 접근 가능
+    - 일반 사용자는 자신이 소유하거나 공유받은 워크스페이스만 접근 가능
+    """
+    from ..services.rbac_service import rbac_service
+    
+    # 관리자는 모든 워크스페이스 접근 가능
+    if rbac_service.is_admin(user.role or "viewer"):
+        return True
+    
+    # TODO: 워크스페이스 소유권/공유 관계 확인 (DB 조회)
+    # 현재 PoC에서는 기본적으로 허용
     return True
 
 
@@ -86,11 +101,16 @@ def _validate_path(path: str) -> bool:
     summary="파일 트리 조회",
     description="워크스페이스의 파일 트리를 반환합니다.",
 )
-async def get_file_tree(ws_id: str):
+async def get_file_tree(
+    ws_id: str,
+    current_user: UserModel = Depends(require_permission(Permission.WORKSPACE_READ)),
+):
     """
     워크스페이스의 파일 트리를 반환합니다.
+    
+    인증 필수: JWT 토큰, 권한: workspace:read
     """
-    if not _validate_workspace_access(ws_id):
+    if not await _validate_workspace_access(ws_id, current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
@@ -135,11 +155,14 @@ async def get_file_tree(ws_id: str):
 async def get_file_content(
     ws_id: str,
     path: str = Query(..., description="파일 경로 (workspace 기준 상대 경로)"),
+    current_user: UserModel = Depends(require_permission(Permission.WORKSPACE_READ)),
 ):
     """
     파일 내용을 반환합니다.
+    
+    인증 필수: JWT 토큰, 권한: workspace:read
     """
-    if not _validate_workspace_access(ws_id):
+    if not await _validate_workspace_access(ws_id, current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
@@ -199,14 +222,17 @@ async def get_file_content(
 async def update_file_content(
     ws_id: str,
     request: UpdateFileContentRequest,
+    current_user: UserModel = Depends(require_permission(Permission.WORKSPACE_WRITE)),
 ):
     """
     파일 내용을 수정합니다.
     
     ⚠️ 주의: 이 API는 직접 파일을 수정합니다.
     AI 기반 코드 변경은 /patch/apply를 사용해야 합니다.
+    
+    인증 필수: JWT 토큰, 권한: workspace:write
     """
-    if not _validate_workspace_access(ws_id):
+    if not await _validate_workspace_access(ws_id, current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
@@ -294,6 +320,7 @@ async def upload_files(
     files: List[UploadFile] = File(..., description="업로드할 파일(들)"),
     target_dir: str = Form(default="", description="업로드 대상 디렉토리 (workspace 기준)"),
     overwrite: bool = Form(default=False, description="기존 파일 덮어쓰기 여부"),
+    current_user: UserModel = Depends(require_permission(Permission.WORKSPACE_WRITE)),
 ):
     """
     파일 업로드
@@ -304,8 +331,10 @@ async def upload_files(
     
     **금융권 폐쇄망 환경**:
     GitHub 접속이 불가능한 경우, 이 API를 통해 소스코드와 패키지를 업로드할 수 있습니다.
+    
+    인증 필수: JWT 토큰, 권한: workspace:write
     """
-    if not _validate_workspace_access(ws_id):
+    if not await _validate_workspace_access(ws_id, current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
@@ -407,6 +436,7 @@ async def upload_zip(
     file: UploadFile = File(..., description="업로드할 ZIP 파일"),
     target_dir: str = Form(default="", description="압축 해제 대상 디렉토리"),
     overwrite: bool = Form(default=False, description="기존 파일 덮어쓰기 여부"),
+    current_user: UserModel = Depends(require_permission(Permission.WORKSPACE_WRITE)),
 ):
     """
     ZIP 아카이브 업로드 및 압축 해제
@@ -417,8 +447,10 @@ async def upload_zip(
     **금융권 폐쇄망 환경**:
     외부에서 다운로드한 패키지나 소스코드를 ZIP으로 묶어 업로드할 수 있습니다.
     예: node_modules.zip, vendor.zip, requirements 패키지 등
+    
+    인증 필수: JWT 토큰, 권한: workspace:write
     """
-    if not _validate_workspace_access(ws_id):
+    if not await _validate_workspace_access(ws_id, current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
@@ -556,11 +588,14 @@ async def delete_file(
     ws_id: str,
     path: str = Query(..., description="삭제할 파일/폴더 경로"),
     recursive: bool = Query(default=False, description="폴더인 경우 하위 항목 포함 삭제"),
+    current_user: UserModel = Depends(require_permission(Permission.WORKSPACE_WRITE)),
 ):
     """
     파일 또는 폴더 삭제
+    
+    인증 필수: JWT 토큰, 권한: workspace:write
     """
-    if not _validate_workspace_access(ws_id):
+    if not await _validate_workspace_access(ws_id, current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},
@@ -628,13 +663,16 @@ async def delete_file(
 async def download_file(
     ws_id: str,
     path: str = Query(..., description="다운로드할 파일 경로"),
+    current_user: UserModel = Depends(require_permission(Permission.WORKSPACE_READ)),
 ):
     """
     파일 다운로드
     
     SSH/SCP 대신 웹 UI에서 파일을 다운로드할 때 사용합니다.
+    
+    인증 필수: JWT 토큰, 권한: workspace:read
     """
-    if not _validate_workspace_access(ws_id):
+    if not await _validate_workspace_access(ws_id, current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "Forbidden", "code": "WS_ACCESS_DENIED"},

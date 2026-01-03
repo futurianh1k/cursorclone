@@ -214,6 +214,52 @@ async def get_current_user(
     )
 
 
+async def get_current_user_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(
+        HTTPBearer(auto_error=False)
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> Optional[UserModel]:
+    """
+    현재 인증된 사용자 가져오기 (선택적)
+    
+    인증 토큰이 없거나 유효하지 않은 경우 None 반환
+    AI Gateway 등 외부 클라이언트에서 호출할 수 있는 엔드포인트용
+    """
+    if not credentials:
+        return None
+    
+    token = credentials.credentials
+    
+    # JWT 토큰 검증
+    payload = jwt_auth_service.verify_token(token)
+    if payload:
+        user_id = payload.get("sub")
+        if user_id:
+            result = await db.execute(
+                select(UserModel).where(UserModel.user_id == user_id)
+            )
+            user = result.scalar_one_or_none()
+            if user:
+                return user
+    
+    # 세션 토큰 검증 (대체 방법)
+    from datetime import datetime
+    result = await db.execute(
+        select(UserSessionModel).where(
+            UserSessionModel.session_token == token,
+            UserSessionModel.expires_at > datetime.utcnow(),
+        )
+    )
+    session = result.scalar_one_or_none()
+    if session:
+        user = await db.get(UserModel, session.user_id)
+        if user:
+            return user
+    
+    return None
+
+
 def require_permission(*required_permissions: Permission):
     """
     특정 권한이 필요한 엔드포인트를 위한 의존성 팩토리

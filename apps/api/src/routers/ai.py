@@ -42,11 +42,11 @@ from ..llm import (
     LLMError,
     LLMTimeoutError,
 )
+from ..utils.filesystem import get_workspace_root, workspace_exists
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
 # Context Builder 인스턴스 (전역 또는 의존성 주입)
-# TODO: 실제로는 의존성 주입 또는 설정에서 가져오기
 _context_builder_cache = {}
 
 
@@ -54,13 +54,19 @@ def _get_context_builder(workspace_id: str) -> DefaultContextBuilder:
     """
     워크스페이스별 Context Builder 가져오기
     
-    TODO: 실제 워크스페이스 루트 경로 가져오기
+    워크스페이스 루트 경로는 utils.filesystem.get_workspace_root()에서 가져옴
     """
     if workspace_id not in _context_builder_cache:
-        # TODO: 실제 워크스페이스 루트 경로
-        workspace_root = f"/workspaces/{workspace_id}"
+        workspace_root = get_workspace_root(workspace_id)
+        
+        if not workspace_exists(workspace_root):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": f"Workspace not found: {workspace_id}", "code": "NOT_FOUND"},
+            )
+        
         _context_builder_cache[workspace_id] = DefaultContextBuilder(
-            workspace_root=workspace_root,
+            workspace_root=str(workspace_root),
         )
     return _context_builder_cache[workspace_id]
 
@@ -118,11 +124,6 @@ async def _read_file_content(workspace_id: str, file_path: str) -> str:
 async def explain_code(request: AIExplainRequest):
     """
     선택된 코드에 대한 AI 설명을 반환합니다.
-    
-    TODO: 실제 AI 설명 구현
-    - Context Builder를 통해 컨텍스트 조합
-    - vLLM으로 요청 전송
-    - 응답 처리 및 반환
     
     흐름: API → Context Builder → vLLM → 응답
     
@@ -518,11 +519,6 @@ async def rewrite_code(request: AIRewriteRequest):
     
     ⚠️ 중요: 이 API는 diff만 반환합니다.
     실제 적용은 /patch/validate → /patch/apply를 통해 수행해야 합니다.
-    
-    TODO: 실제 AI 리라이트 구현
-    - Context Builder를 통해 컨텍스트 조합
-    - vLLM으로 요청 전송 (rewrite 프롬프트 템플릿 사용)
-    - unified diff 형식 응답 파싱
     
     흐름: API → Context Builder → vLLM → diff 반환
           → (클라이언트) → /patch/validate → /patch/apply
@@ -1464,12 +1460,12 @@ async def suggest_context(request: ContextSuggestRequest):
     import os
     from pathlib import Path
     
-    workspace_root = Path(f"/workspaces/{request.workspace_id}")
+    workspace_root = get_workspace_root(request.workspace_id)
     query = request.query.lower()
     suggestions = []
     
     # 파일 검색
-    if not workspace_root.exists():
+    if not workspace_exists(workspace_root):
         return ContextSuggestResponse(suggestions=[], total=0)
     
     try:

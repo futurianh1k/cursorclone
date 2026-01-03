@@ -9,7 +9,7 @@ import os
 import subprocess
 import re
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from typing import List
 from ..models import (
     CreateWorkspaceRequest,
@@ -22,6 +22,8 @@ from ..utils.filesystem import (
     create_workspace_directory,
     workspace_exists,
 )
+from ..db import UserModel
+from ..services.rbac_service import get_current_user, require_permission, Permission
 
 router = APIRouter(prefix="/api/workspaces", tags=["workspaces"])
 
@@ -38,11 +40,16 @@ router = APIRouter(prefix="/api/workspaces", tags=["workspaces"])
     summary="워크스페이스 생성",
     description="새로운 워크스페이스를 생성합니다.",
 )
-async def create_workspace(request: CreateWorkspaceRequest):
+async def create_workspace(
+    request: CreateWorkspaceRequest,
+    current_user: UserModel = Depends(require_permission(Permission.WORKSPACE_CREATE)),
+):
     """
     새 워크스페이스를 생성합니다.
     
     빈 워크스페이스를 생성합니다.
+    
+    인증 필수: JWT 토큰, 권한: workspace:create
     """
     workspace_id = f"ws_{request.name}"
     workspace_root = get_workspace_root(workspace_id)
@@ -123,11 +130,16 @@ async def list_workspaces():
     summary="GitHub 저장소 클론",
     description="GitHub 저장소를 클론하여 새 워크스페이스를 생성합니다.",
 )
-async def clone_github_repository(request: CloneGitHubRequest):
+async def clone_github_repository(
+    request: CloneGitHubRequest,
+    current_user: UserModel = Depends(require_permission(Permission.WORKSPACE_CREATE)),
+):
     """
     GitHub 저장소를 클론하여 새 워크스페이스를 생성합니다.
     
     저장소 URL에서 자동으로 이름을 추출하거나, name을 지정할 수 있습니다.
+    
+    인증 필수: JWT 토큰, 권한: workspace:create
     """
     # 저장소 이름 추출
     if request.name:

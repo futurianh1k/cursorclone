@@ -7,7 +7,7 @@ IDE 컨테이너 관리 라우터
 - Docker SDK for Python: https://docker-py.readthedocs.io/
 """
 
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Request
 from typing import Optional
 import os
 import uuid
@@ -34,6 +34,8 @@ from ..models.ide import (
     StopIDEContainerResponse,
     IDEHealthResponse,
 )
+from ..db import UserModel
+from ..services.rbac_service import get_current_user_optional, get_current_user
 
 router = APIRouter(prefix="/api/ide", tags=["IDE"])
 
@@ -94,10 +96,16 @@ def release_port(port: int):
     _used_ports.discard(port)
 
 
-def get_current_user_id() -> str:
-    """현재 사용자 ID (TODO: JWT에서 추출)"""
-    # PoC: 하드코딩된 사용자 ID
+def get_user_id_from_model(user: Optional[UserModel]) -> str:
+    """UserModel에서 사용자 ID 추출"""
+    if user:
+        return user.user_id
     return "user-default"
+
+
+def get_user_id_from_header(request: Request) -> str:
+    """요청 헤더에서 사용자 ID 추출 (폴백용)"""
+    return request.headers.get("X-User-ID", "user-default")
 
 
 # ============================================================
@@ -108,13 +116,16 @@ def get_current_user_id() -> str:
 async def create_ide_container(
     request: CreateIDEContainerRequest,
     background_tasks: BackgroundTasks,
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     새 IDE 컨테이너 생성
     
     워크스페이스에 대한 브라우저 기반 VS Code (code-server) 컨테이너를 생성합니다.
+    
+    인증 필수: JWT 토큰 (Authorization: Bearer ...)
     """
-    user_id = get_current_user_id()
+    user_id = current_user.user_id
     container_id = f"ide-{uuid.uuid4().hex[:12]}"
     
     # 기존 컨테이너 확인
@@ -241,11 +252,14 @@ async def _create_container_async(
 async def list_ide_containers(
     workspace_id: Optional[str] = None,
     status: Optional[IDEContainerStatus] = None,
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     IDE 컨테이너 목록 조회
+    
+    인증 필수: JWT 토큰 (Authorization: Bearer ...)
     """
-    user_id = get_current_user_id()
+    user_id = current_user.user_id
     
     containers = []
     for container_info in _ide_containers.values():
@@ -436,14 +450,19 @@ async def get_ide_health():
 
 
 @router.get("/workspace/{workspace_id}/url")
-async def get_workspace_ide_url(workspace_id: str):
+async def get_workspace_ide_url(
+    workspace_id: str,
+    current_user: UserModel = Depends(get_current_user),
+):
     """
     워크스페이스의 IDE URL 조회 (또는 생성)
     
     워크스페이스에 대한 IDE URL을 반환합니다.
     실행 중인 컨테이너가 없으면 새로 생성합니다.
+    
+    인증 필수: JWT 토큰 (Authorization: Bearer ...)
     """
-    user_id = get_current_user_id()
+    user_id = current_user.user_id
     
     # 기존 실행 중인 컨테이너 찾기
     existing = next(

@@ -12,7 +12,7 @@ LiteLLM Proxy를 통한 통합 AI API
 - OpenAI API 호환: https://platform.openai.com/docs/api-reference
 """
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List, AsyncGenerator
@@ -22,6 +22,9 @@ import logging
 import json
 from datetime import datetime, timezone
 import hashlib
+
+from ..db import UserModel
+from ..services.rbac_service import get_current_user_optional
 
 router = APIRouter(prefix="/api/gateway", tags=["AI Gateway"])
 
@@ -110,9 +113,16 @@ class GatewayHealthResponse(BaseModel):
 # Helper Functions
 # ============================================================
 
-def get_user_id(request: Request) -> str:
-    """요청에서 사용자 ID 추출 (TODO: JWT에서 추출)"""
+def get_user_id_from_header(request: Request) -> str:
+    """요청 헤더에서 사용자 ID 추출 (폴백용)"""
     return request.headers.get("X-User-ID", "anonymous")
+
+
+def get_user_id_from_model(user: Optional[UserModel]) -> str:
+    """UserModel에서 사용자 ID 추출"""
+    if user:
+        return user.user_id
+    return "anonymous"
 
 
 def log_audit(
@@ -135,20 +145,18 @@ def log_audit(
     if not AUDIT_LOGGING_ENABLED:
         return
     
-    audit_log = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "user_id": user_id,
-        "action": action,
-        "model": model,
-        "request_id": request_id,
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "latency_ms": latency_ms,
-        "status": status,
-    }
-    
-    # TODO: 실제 환경에서는 중앙 로깅 시스템으로 전송
-    logger.info(f"AUDIT: {json.dumps(audit_log)}")
+    # 동기 감사 로깅 (AI Gateway용 - 빠른 응답 필요)
+    from ..services.audit_service import audit_service
+    audit_service.log_sync(
+        user_id=user_id,
+        action=action,
+        model=model,
+        request_id=request_id,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        latency_ms=latency_ms,
+        status=status,
+    )
 
 
 async def check_service_health(url: str, timeout: float = 5.0) -> bool:
@@ -184,14 +192,21 @@ async def gateway_health():
 
 
 @router.post("/v1/chat/completions")
-async def chat_completions(request: ChatCompletionRequest, req: Request):
+async def chat_completions(
+    request: ChatCompletionRequest,
+    req: Request,
+    current_user: Optional[UserModel] = Depends(get_current_user_optional),
+):
     """
     OpenAI 호환 Chat Completion API
     
     LiteLLM Proxy를 통해 vLLM으로 라우팅됩니다.
     Continue 확장 프로그램과 호환됩니다.
+    
+    인증: JWT 토큰 (Authorization: Bearer ...) 또는 X-User-ID 헤더
+    JWT가 없는 경우 X-User-ID 헤더로 폴백
     """
-    user_id = get_user_id(req)
+    user_id = get_user_id_from_model(current_user) if current_user else get_user_id_from_header(req)
     request_id = hashlib.sha256(f"{user_id}-{datetime.now().isoformat()}".encode()).hexdigest()[:16]
     start_time = datetime.now()
     
@@ -244,13 +259,17 @@ async def chat_completions(request: ChatCompletionRequest, req: Request):
 
 
 @router.post("/v1/chat/completions/stream")
-async def chat_completions_stream(request: ChatCompletionRequest, req: Request):
+async def chat_completions_stream(
+    request: ChatCompletionRequest,
+    req: Request,
+    current_user: Optional[UserModel] = Depends(get_current_user_optional),
+):
     """
     스트리밍 Chat Completion API
     
     Server-Sent Events (SSE) 형식으로 응답을 스트리밍합니다.
     """
-    user_id = get_user_id(req)
+    user_id = get_user_id_from_model(current_user) if current_user else get_user_id_from_header(req)
     request_id = hashlib.sha256(f"{user_id}-{datetime.now().isoformat()}".encode()).hexdigest()[:16]
     
     request.stream = True
@@ -287,14 +306,18 @@ async def chat_completions_stream(request: ChatCompletionRequest, req: Request):
 
 
 @router.post("/v1/completions")
-async def tabby_completions(request: TabbyCompletionRequest, req: Request):
+async def tabby_completions(
+    request: TabbyCompletionRequest,
+    req: Request,
+    current_user: Optional[UserModel] = Depends(get_current_user_optional),
+):
     """
     Tabby 자동완성 API
     
     Tabby 서버로 직접 라우팅됩니다.
     저지연 응답을 위해 LiteLLM을 거치지 않습니다.
     """
-    user_id = get_user_id(req)
+    user_id = get_user_id_from_model(current_user) if current_user else get_user_id_from_header(req)
     request_id = hashlib.sha256(f"{user_id}-{datetime.now().isoformat()}".encode()).hexdigest()[:16]
     start_time = datetime.now()
     
@@ -373,13 +396,16 @@ async def list_models():
 
 
 @router.get("/usage")
-async def get_usage(req: Request):
+async def get_usage(
+    req: Request,
+    current_user: Optional[UserModel] = Depends(get_current_user_optional),
+):
     """
     사용량 통계 조회
     
     현재 사용자의 토큰 사용량 및 요청 횟수를 반환합니다.
     """
-    user_id = get_user_id(req)
+    user_id = get_user_id_from_model(current_user) if current_user else get_user_id_from_header(req)
     
     # TODO: Redis 또는 DB에서 실제 사용량 조회
     return {
