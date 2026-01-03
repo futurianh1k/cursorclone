@@ -1,0 +1,44 @@
+# VDE Web IDE Platform - Kubernetes Base Kustomization
+# 용도: Pilot/Production Kubernetes 배포 기본 구성
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: vde-ide
+
+resources:
+  - namespace.yaml
+  - nginx/deployment.yaml
+  - nginx/service.yaml
+  - nginx/configmap.yaml
+  - keycloak/deployment.yaml
+  - keycloak/service.yaml
+  - tabby/deployment.yaml
+  - tabby/service.yaml
+  - litellm/deployment.yaml
+  - litellm/service.yaml
+  - litellm/configmap.yaml
+  - vllm/deployment.yaml
+  - vllm/service.yaml
+  - code-server/statefulset.yaml
+  - code-server/service.yaml
+  - code-server/configmap.yaml
+  - networkpolicies/default-deny.yaml
+  - networkpolicies/allow-ingress.yaml
+  - networkpolicies/allow-ai.yaml
+
+configMapGenerator:
+  - name: common-config
+    literals:
+      - ENVIRONMENT=base
+      - LOG_LEVEL=info
+
+secretGenerator:
+  - name: common-secrets
+    literals:
+      - LITELLM_MASTER_KEY=changeme
+    type: Opaque
+
+commonLabels:
+  app.kubernetes.io/part-of: vde-web-ide
+  app.kubernetes.io/managed-by: kustomize
