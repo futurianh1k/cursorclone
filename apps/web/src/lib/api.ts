@@ -402,3 +402,109 @@ export async function applyPatch(request: PatchApplyRequest): Promise<PatchApply
   }
   return response.json();
 }
+
+// ============================================================
+// SSH
+// ============================================================
+
+export interface SSHConnectionInfo {
+  host: string;
+  port: number;
+  username: string;
+  authType: string;
+}
+
+export interface SSHConnectionResponse {
+  workspaceId: string;
+  connection: SSHConnectionInfo;
+  status: "available" | "unavailable";
+  sshCommand: string;
+  vscodeRemoteUri: string;
+}
+
+export interface SSHKeyResponse {
+  success: boolean;
+  message: string;
+  workspaceId: string;
+  fingerprint?: string;
+}
+
+export interface GenerateSSHKeyResponse {
+  success: boolean;
+  message: string;
+  publicKey: string;
+  privateKey: string;
+  fingerprint: string;
+}
+
+export interface CursorSSHCommandResponse {
+  workspaceId: string;
+  instructions: {
+    step1: string;
+    step2: string;
+    step3: string;
+  };
+  sshConfig: {
+    description: string;
+    content: string;
+  };
+  vscodeRemoteUri: string;
+  directCommand: string;
+}
+
+export async function getSSHConnectionInfo(workspaceId: string): Promise<SSHConnectionResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/workspaces/${workspaceId}/ssh/info`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to get SSH info: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function setupSSHKey(workspaceId: string, publicKey: string): Promise<SSHKeyResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/workspaces/${workspaceId}/ssh/key`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ publicKey }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to setup SSH key: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function setupSSHPassword(workspaceId: string, password: string): Promise<SSHKeyResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/workspaces/${workspaceId}/ssh/password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to setup SSH password: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function generateSSHKeyPair(workspaceId: string, keyType: "rsa" | "ed25519" = "ed25519"): Promise<GenerateSSHKeyResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/workspaces/${workspaceId}/ssh/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key_type: keyType }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to generate SSH key: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function getCursorSSHCommand(workspaceId: string): Promise<CursorSSHCommandResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/workspaces/${workspaceId}/ssh/cursor-command`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to get Cursor SSH command: ${response.statusText}`);
+  }
+  return response.json();
+}

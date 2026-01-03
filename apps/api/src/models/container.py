@@ -23,6 +23,7 @@ class ContainerStatus(str, Enum):
 
 class ContainerImage(str, Enum):
     """지원하는 컨테이너 이미지"""
+    UBUNTU_DEV = "cursor-workspace-ubuntu:24.04"  # Ubuntu 24.04 기반 개발 환경 (권장)
     PYTHON = "cursor-workspace-python:latest"
     NODEJS = "cursor-workspace-nodejs:latest"
     GOLANG = "cursor-workspace-golang:latest"
@@ -146,6 +147,105 @@ class ContainerActionResponse(BaseModel):
     message: str
     workspace_id: str = Field(..., alias="workspaceId")
     container_id: Optional[str] = Field(default=None, alias="containerId")
+    
+    class Config:
+        populate_by_name = True
+
+
+# ============================================================
+# SSH 관련 모델
+# ============================================================
+
+class SSHConnectionInfo(BaseModel):
+    """SSH 연결 정보"""
+    host: str = Field(..., description="SSH 서버 호스트 (IP 또는 도메인)")
+    port: int = Field(..., description="SSH 포트")
+    username: str = Field(default="developer", description="SSH 사용자명")
+    auth_type: str = Field(default="key", description="인증 방식: key, password")
+    private_key_path: Optional[str] = Field(default=None, alias="privateKeyPath", description="개인키 경로 (로컬)")
+    
+    class Config:
+        populate_by_name = True
+
+
+class SSHConnectionResponse(BaseModel):
+    """SSH 연결 정보 응답"""
+    workspace_id: str = Field(..., alias="workspaceId")
+    connection: SSHConnectionInfo
+    status: str = Field(default="available", description="연결 상태: available, unavailable")
+    ssh_command: str = Field(..., alias="sshCommand", description="SSH 접속 명령어")
+    vscode_remote_uri: str = Field(..., alias="vscodeRemoteUri", description="VS Code Remote SSH URI")
+    
+    class Config:
+        populate_by_name = True
+
+
+class SetupSSHKeyRequest(BaseModel):
+    """SSH 키 설정 요청"""
+    public_key: str = Field(..., alias="publicKey", min_length=20, description="SSH 공개키")
+    
+    @field_validator("public_key")
+    @classmethod
+    def validate_public_key(cls, v: str) -> str:
+        # SSH 키 형식 검증
+        if not v.startswith(("ssh-rsa", "ssh-ed25519", "ecdsa-sha2")):
+            raise ValueError("Invalid SSH public key format. Must start with ssh-rsa, ssh-ed25519, or ecdsa-sha2")
+        return v.strip()
+    
+    class Config:
+        populate_by_name = True
+
+
+class SetupSSHPasswordRequest(BaseModel):
+    """SSH 비밀번호 설정 요청"""
+    password: str = Field(..., min_length=8, max_length=128, description="SSH 비밀번호")
+    
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        # 비밀번호 복잡도 검증
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        if not any(c.isupper() for c in v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not any(c.islower() for c in v):
+            raise ValueError("Password must contain at least one lowercase letter")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Password must contain at least one digit")
+        return v
+
+
+class SSHKeyResponse(BaseModel):
+    """SSH 키 설정 응답"""
+    success: bool
+    message: str
+    workspace_id: str = Field(..., alias="workspaceId")
+    fingerprint: Optional[str] = None
+    
+    class Config:
+        populate_by_name = True
+
+
+class GenerateSSHKeyRequest(BaseModel):
+    """SSH 키 쌍 생성 요청"""
+    key_type: str = Field(default="ed25519", description="키 타입: rsa, ed25519")
+    comment: Optional[str] = Field(default=None, description="키 주석 (이메일 등)")
+    
+    @field_validator("key_type")
+    @classmethod
+    def validate_key_type(cls, v: str) -> str:
+        if v not in ["rsa", "ed25519"]:
+            raise ValueError("Key type must be 'rsa' or 'ed25519'")
+        return v
+
+
+class GenerateSSHKeyResponse(BaseModel):
+    """SSH 키 쌍 생성 응답"""
+    success: bool
+    message: str
+    public_key: str = Field(..., alias="publicKey")
+    private_key: str = Field(..., alias="privateKey", description="⚠️ 이 값은 다시 조회할 수 없습니다")
+    fingerprint: str
     
     class Config:
         populate_by_name = True

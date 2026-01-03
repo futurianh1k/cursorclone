@@ -30,6 +30,7 @@ from .routers import (
     ws_router,
     admin_router,
     container_router,
+    ssh_router,
 )
 
 # ============================================================
@@ -141,6 +142,7 @@ app.include_router(ai_router)
 app.include_router(patch_router)
 app.include_router(admin_router)
 app.include_router(container_router)  # 컨테이너 관리 라우터
+app.include_router(ssh_router)        # SSH 접속 관리 라우터
 
 # WebSocket 라우터 등록
 app.include_router(ws_router)
