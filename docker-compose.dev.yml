@@ -1,0 +1,19 @@
+# 개발 환경용 Docker Compose 설정
+# 사용법: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# 이 파일은 docker-compose.yml과 함께 사용하여 개발 환경을 구성합니다.
+# vLLM 서비스는 GPU/CPU 자동 감지 후 적절한 모델로 시작됩니다.
+
+services:
+  # vLLM 서비스 - 개발 환경 자동 감지
+  vllm:
+    # GPU/CPU 모드는 .env 파일의 VLLM_MODE에 따라 결정됨
+    # auto-detect-vllm.sh 스크립트가 자동으로 설정
+    environment:
+      VLLM_MODEL: ${VLLM_MODEL:-Qwen/Qwen2.5-Coder-7B-Instruct}
+      VLLM_GPU_MEMORY: ${VLLM_GPU_MEMORY:-0.9}
+      VLLM_MAX_MODEL_LEN: ${VLLM_MAX_MODEL_LEN:-8192}
+    # GPU 모드인 경우 docker-compose.vllm.yml 사용
+    # CPU 모드인 경우 docker-compose.vllm-cpu.yml 사용
+    # Makefile.dev의 dev-vllm-start가 자동으로 선택
+

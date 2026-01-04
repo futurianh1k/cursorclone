@@ -1,0 +1,50 @@
+# vLLM 서비스 - CPU 모드 (GPU 없는 개발 환경용)
+# 사용법: docker compose -f docker-compose.yml -f docker-compose.vllm-cpu.yml up -d
+#
+# 주의: CPU 모드는 매우 느리며, 개발/테스트 목적으로만 사용하세요.
+# 프로덕션 환경에서는 GPU를 사용하는 것을 강력히 권장합니다.
+
+services:
+  # vLLM 서버 (CPU 모드)
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: cursor-poc-vllm
+    # GPU 설정 제거 (CPU 모드)
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+    command: >
+      --model ${VLLM_MODEL:-Qwen/Qwen2.5-Coder-1.5B-Instruct}
+      --host 0.0.0.0
+      --port 8000
+      --max-model-len ${VLLM_MAX_MODEL_LEN:-2048}
+      --trust-remote-code
+      --dtype float16
+      --device cpu
+      --tensor-parallel-size 1
+    ports:
+      - "${VLLM_PORT:-8001}:8000"
+    volumes:
+      - vllm_cache:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 60s
+      timeout: 30s
+      retries: 5
+      start_period: 300s  # CPU 모드는 로딩이 더 오래 걸림
+    networks:
+      - cursor-network
+    # CPU 모드는 GPU 설정 없이 실행
+    # deploy 섹션 제거 (GPU 필요 없음)
+
+  # API 서버 - vLLM 연결 설정 오버라이드
+  api:
+    environment:
+      VLLM_BASE_URL: http://vllm:8000/v1
+      DEV_MODE: "false"
+    depends_on:
+      vllm:
+        condition: service_healthy
+
+volumes:
+  vllm_cache:
+
