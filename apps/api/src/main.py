@@ -301,18 +301,32 @@ app.include_router(ws_router)
 @app.on_event("startup")
 async def startup_event():
     """앱 시작 시 실행"""
+    logger.info("애플리케이션 시작 중...")
+    
     # Prometheus 메트릭 설정
     from .middleware.metrics import setup_metrics
     setup_metrics(app)
     
-    # 데이터베이스 초기화
-    from .db import init_db
-    await init_db()
+    # 데이터베이스 초기화 (재시도 로직 포함)
+    try:
+        from .db import init_db
+        await init_db()
+    except Exception as e:
+        logger.error(f"데이터베이스 초기화 실패: {e}")
+        # 데이터베이스 연결 실패해도 앱은 계속 실행 (나중에 재시도 가능)
+        # 프로덕션에서는 여기서 종료할 수도 있음
+        if os.getenv("REQUIRE_DB", "true").lower() == "true":
+            raise
     
     # Redis 캐시 연결
-    from .services.cache_service import cache_service
-    await cache_service.connect()
+    try:
+        from .services.cache_service import cache_service
+        await cache_service.connect()
+    except Exception as e:
+        logger.warning(f"Redis 연결 실패 (계속 진행): {e}")
+        # Redis는 선택적이므로 실패해도 계속 진행
     
+    logger.info("애플리케이션 시작 완료")
     # vLLM 클라이언트는 필요 시 자동 생성됨 (get_llm_client)
 
 
