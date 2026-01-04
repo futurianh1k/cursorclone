@@ -34,6 +34,23 @@ cd apps/web && pnpm dev
 
 브라우저에서 `http://localhost:3000` 접속
 
+### 로컬 개발 환경 (vLLM 포함)
+
+개발자들이 로컬 PC에서 vLLM을 구동하는 방법:
+
+```bash
+# 1. GPU/CPU 자동 감지 및 설정
+make -f Makefile.dev dev-vllm-setup
+
+# 2. vLLM 서버 시작 (자동으로 GPU/CPU 모드 선택)
+make -f Makefile.dev dev-vllm-start
+
+# 3. 상태 확인
+make -f Makefile.dev dev-vllm-status
+```
+
+**상세 가이드**: [로컬 개발 환경 설정](docs/dev-local-setup.md)
+
 ### Docker Compose로 실행
 ```bash
 # 서비스 시작

@@ -105,22 +105,30 @@ services:
 
   # vLLM (LLM Inference Server)
   # GPU가 있는 환경에서만 실행됩니다. GPU가 없으면 profiles: [gpu]로 비활성화됩니다.
+  # 모델 선택: GPU 메모리에 따라 환경변수로 설정
+  # - 4GB 이하:  Qwen/Qwen2.5-Coder-1.5B-Instruct
+  # - 8GB:       Qwen/Qwen2.5-Coder-7B-Instruct (기본값)
+  # - 16GB:      Qwen/Qwen2.5-Coder-14B-Instruct
+  # - 24GB 이상: Qwen/Qwen2.5-Coder-32B-Instruct
   vllm:
     image: vllm/vllm-openai:latest
     container_name: cursor-poc-vllm
     environment:
       VLLM_API_KEY: ${VLLM_API_KEY:-}
+      VLLM_MODEL: ${VLLM_MODEL:-Qwen/Qwen2.5-Coder-7B-Instruct}
+      VLLM_GPU_MEMORY: ${VLLM_GPU_MEMORY:-0.9}
+      VLLM_MAX_MODEL_LEN: ${VLLM_MAX_MODEL_LEN:-8192}
     command:
-      - "Qwen/Qwen2.5-Coder-7B-Instruct"
+      - "${VLLM_MODEL:-Qwen/Qwen2.5-Coder-7B-Instruct}"
       - "--host"
       - "0.0.0.0"
       - "--port"
       - "8000"
       - "--trust-remote-code"
       - "--max-model-len"
-      - "8192"
+      - "${VLLM_MAX_MODEL_LEN:-8192}"
       - "--gpu-memory-utilization"
-      - "0.9"
+      - "${VLLM_GPU_MEMORY:-0.9}"
     ports:
       - "${VLLM_PORT:-8001}:8000"
     volumes:

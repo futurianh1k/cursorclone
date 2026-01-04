@@ -161,7 +161,31 @@ docker-build:
 
 docker-up:
 	@echo "🚀 Docker 서비스 시작..."
-	docker compose up -d
+	@echo "🔍 vLLM 설정 자동 감지 중..."
+	@./scripts/auto-detect-vllm.sh || true
+	@docker compose up -d postgres redis api web
+	@if [ -f .env ] && grep -q "^VLLM_MODE=cpu" .env 2>/dev/null; then \
+		echo "vLLM CPU 모드 시작 중..."; \
+		docker compose -f docker-compose.yml -f docker-compose.vllm-cpu.yml up -d vllm; \
+	elif [ -f .env ] && grep -q "^VLLM_MODE=gpu" .env 2>/dev/null; then \
+		echo "vLLM GPU 모드 시작 중..."; \
+		docker compose --profile gpu -f docker-compose.yml -f docker-compose.vllm.yml up -d vllm || \
+		(echo "⚠️  GPU 모드 시작 실패. CPU 모드로 재시도합니다..."; \
+		 echo "VLLM_MODE=cpu" >> .env 2>/dev/null || true; \
+		 docker compose -f docker-compose.yml -f docker-compose.vllm-cpu.yml up -d vllm); \
+	else \
+		echo "vLLM 설정이 없습니다. GPU/CPU 자동 감지 중..."; \
+		if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then \
+			echo "GPU 감지됨. GPU 모드로 시작합니다..."; \
+			docker compose --profile gpu -f docker-compose.yml -f docker-compose.vllm.yml up -d vllm || \
+			(echo "⚠️  GPU 모드 시작 실패. CPU 모드로 재시도합니다..."; \
+			 docker compose -f docker-compose.yml -f docker-compose.vllm-cpu.yml up -d vllm); \
+		else \
+			echo "GPU를 찾을 수 없습니다. CPU 모드로 시작합니다..."; \
+			docker compose -f docker-compose.yml -f docker-compose.vllm-cpu.yml up -d vllm; \
+		fi \
+	fi
+	@echo "✅ 모든 서비스 시작 완료"
 
 docker-up-webide:
 	@echo "🚀 WebIDE 서비스 시작..."

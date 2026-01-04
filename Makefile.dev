@@ -1,0 +1,117 @@
+# 개발 환경용 Makefile
+# 로컬 개발 PC에서 사용하는 명령어 모음
+
+.PHONY: dev-vllm-setup dev-vllm-start dev-vllm-stop dev-vllm-logs dev-vllm-status
+
+# ============================================================
+# 개발 환경 vLLM 설정
+# ============================================================
+
+dev-vllm-setup:
+	@echo "🔧 개발 환경 vLLM 자동 설정 중..."
+	@./scripts/setup-dev-vllm.sh
+
+dev-vllm-setup-cpu:
+	@echo "🔧 CPU 모드로 강제 설정 중..."
+	@./scripts/setup-dev-vllm.sh --force-cpu
+
+dev-vllm-setup-gpu:
+	@echo "🔧 GPU 모드로 강제 설정 중..."
+	@./scripts/setup-dev-vllm.sh --force-gpu
+
+# ============================================================
+# 개발 환경 vLLM 실행
+# ============================================================
+
+dev-vllm-start:
+	@echo "🚀 개발 환경 vLLM 서버 시작 중..."
+	@echo "🔍 vLLM 설정 자동 감지 중..."
+	@./scripts/auto-detect-vllm.sh || true
+	@if [ -f .env ] && grep -q "^VLLM_MODE=cpu" .env 2>/dev/null; then \
+		echo "CPU 모드로 시작합니다..."; \
+		docker compose -f docker-compose.yml -f docker-compose.vllm-cpu.yml up -d vllm; \
+	else \
+		echo "GPU 모드로 시작합니다..."; \
+		docker compose --profile gpu -f docker-compose.yml -f docker-compose.vllm.yml up -d vllm || \
+		(echo "⚠️  GPU 모드 시작 실패. CPU 모드로 재시도합니다..."; \
+		 echo "VLLM_MODE=cpu" >> .env 2>/dev/null || true; \
+		 docker compose -f docker-compose.yml -f docker-compose.vllm-cpu.yml up -d vllm); \
+	fi
+	@echo "✅ vLLM 서버 시작 완료"
+	@echo "상태 확인: make dev-vllm-status"
+
+dev-vllm-stop:
+	@echo "⏹️  개발 환경 vLLM 서버 중지 중..."
+	@docker compose -f docker-compose.yml -f docker-compose.vllm.yml stop vllm 2>/dev/null || true
+	@docker compose -f docker-compose.yml -f docker-compose.vllm-cpu.yml stop vllm 2>/dev/null || true
+	@echo "✅ vLLM 서버 중지 완료"
+
+dev-vllm-restart: dev-vllm-stop dev-vllm-start
+
+dev-vllm-logs:
+	@echo "📋 개발 환경 vLLM 서버 로그:"
+	@docker compose logs vllm --tail 50 -f
+
+dev-vllm-status:
+	@echo "📊 개발 환경 vLLM 서버 상태:"
+	@docker compose ps vllm 2>/dev/null || echo "vLLM 서버가 실행되지 않았습니다."
+	@echo ""
+	@if [ -f .env ]; then \
+		echo "현재 설정 (.env):"; \
+		grep "^VLLM" .env 2>/dev/null || echo "  VLLM 설정 없음"; \
+	else \
+		echo "⚠️  .env 파일이 없습니다. 'make dev-vllm-setup' 실행하세요."; \
+	fi
+
+# ============================================================
+# 개발 환경 전체 시작
+# ============================================================
+
+dev-start:
+	@echo "🚀 개발 환경 전체 시작 중..."
+	@docker compose up -d postgres redis api web
+	@echo "✅ 기본 서비스 시작 완료"
+	@echo ""
+	@echo "vLLM 서버를 시작하려면:"
+	@echo "  make dev-vllm-setup  # 먼저 설정"
+	@echo "  make dev-vllm-start  # 그 다음 시작"
+
+dev-stop:
+	@echo "⏹️  개발 환경 전체 중지 중..."
+	@docker compose down
+	@docker compose -f docker-compose.yml -f docker-compose.vllm.yml down 2>/dev/null || true
+	@docker compose -f docker-compose.yml -f docker-compose.vllm-cpu.yml down 2>/dev/null || true
+	@echo "✅ 모든 서비스 중지 완료"
+
+dev-status:
+	@echo "📊 개발 환경 전체 상태:"
+	@docker compose ps
+	@echo ""
+	@make dev-vllm-status
+
+# ============================================================
+# 도움말
+# ============================================================
+
+dev-help:
+	@echo "개발 환경 명령어:"
+	@echo ""
+	@echo "설정:"
+	@echo "  make dev-vllm-setup       - GPU/CPU 자동 감지 및 설정"
+	@echo "  make dev-vllm-setup-cpu   - CPU 모드 강제 설정"
+	@echo "  make dev-vllm-setup-gpu   - GPU 모드 강제 설정"
+	@echo ""
+	@echo "실행:"
+	@echo "  make dev-vllm-start       - vLLM 서버 시작"
+	@echo "  make dev-vllm-stop        - vLLM 서버 중지"
+	@echo "  make dev-vllm-restart     - vLLM 서버 재시작"
+	@echo ""
+	@echo "확인:"
+	@echo "  make dev-vllm-status      - vLLM 서버 상태 확인"
+	@echo "  make dev-vllm-logs        - vLLM 서버 로그 확인"
+	@echo ""
+	@echo "전체:"
+	@echo "  make dev-start            - 모든 서비스 시작"
+	@echo "  make dev-stop             - 모든 서비스 중지"
+	@echo "  make dev-status           - 전체 상태 확인"
+
