@@ -18,6 +18,7 @@ import {
   IDEContainerResponse,
 } from "@/lib/api";
 import { getCurrentUser, User } from "@/lib/auth-api";
+import { groupWorkspacesByProject } from "@/lib/projectGrouping";
 
 // IDE 컨테이너 상태 색상
 const STATUS_COLORS: Record<string, { bg: string; text: string; label: string }> = {
@@ -40,6 +41,7 @@ export default function DashboardOverview() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(new Set());
 
   // 워크스페이스 생성 모달
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -98,6 +100,15 @@ export default function DashboardOverview() {
     const map: Record<string, string> = {};
     for (const p of projects) map[p.projectId] = p.name;
     return map;
+  }, [projects]);
+
+  // 프로젝트 카드 기본 확장(처음 로드 시)
+  useEffect(() => {
+    if (expandedProjectIds.size > 0) return;
+    const next = new Set<string>();
+    for (const p of projects) next.add(p.projectId);
+    setExpandedProjectIds(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projects]);
 
   useEffect(() => {
@@ -305,6 +316,41 @@ export default function DashboardOverview() {
     return container.status;
   };
 
+  const openCreateModalForProject = (projectId?: string) => {
+    setCreateError(null);
+    setShowCreateModal(true);
+    setCreateMode("empty");
+    setNewWorkspaceName("");
+    setGithubUrl("");
+    setGithubBranch("");
+    if (projectId) {
+      setSelectedProjectId(projectId);
+      setNewProjectName("");
+    } else {
+      setSelectedProjectId("");
+      setNewProjectName("");
+    }
+  };
+
+  const toggleProject = (projectId: string) => {
+    setExpandedProjectIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(projectId)) next.delete(projectId);
+      else next.add(projectId);
+      return next;
+    });
+  };
+
+  const expandAllProjects = () => {
+    const next = new Set<string>();
+    for (const p of projects) next.add(p.projectId);
+    setExpandedProjectIds(next);
+  };
+
+  const collapseAllProjects = () => {
+    setExpandedProjectIds(new Set());
+  };
+
   if (loading) {
     return (
       <div style={{ padding: "40px", textAlign: "center" }}>
@@ -326,7 +372,7 @@ export default function DashboardOverview() {
           </p>
         </div>
         <button
-          onClick={() => setShowCreateModal(true)}
+          onClick={() => openCreateModalForProject(undefined)}
           style={{
             padding: "12px 24px",
             fontSize: "14px",
@@ -441,11 +487,44 @@ export default function DashboardOverview() {
             padding: "16px 24px",
             borderBottom: "1px solid #d1d5da",
             backgroundColor: "#f6f8fa",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
           }}
         >
           <h2 style={{ margin: 0, fontSize: "16px", fontWeight: 600 }}>
-            워크스페이스 목록
+            프로젝트
           </h2>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button
+              onClick={expandAllProjects}
+              style={{
+                padding: "6px 10px",
+                fontSize: "12px",
+                backgroundColor: "#ffffff",
+                color: "#24292e",
+                border: "1px solid #d1d5da",
+                borderRadius: "6px",
+                cursor: "pointer",
+              }}
+            >
+              모두 펼치기
+            </button>
+            <button
+              onClick={collapseAllProjects}
+              style={{
+                padding: "6px 10px",
+                fontSize: "12px",
+                backgroundColor: "#ffffff",
+                color: "#24292e",
+                border: "1px solid #d1d5da",
+                borderRadius: "6px",
+                cursor: "pointer",
+              }}
+            >
+              모두 접기
+            </button>
+          </div>
         </div>
 
         {workspaces.length === 0 ? (
@@ -455,7 +534,7 @@ export default function DashboardOverview() {
               워크스페이스가 없습니다.
             </p>
             <button
-              onClick={() => setShowCreateModal(true)}
+              onClick={() => openCreateModalForProject(undefined)}
               style={{
                 padding: "10px 20px",
                 fontSize: "14px",
@@ -472,206 +551,269 @@ export default function DashboardOverview() {
           </div>
         ) : (
           <div>
-            {workspaces.map((ws) => {
-              const status = getContainerStatus(ws.workspaceId);
-              const statusInfo = STATUS_COLORS[status] || STATUS_COLORS.none;
-              const container = containers[ws.workspaceId];
-              const isLoading = actionLoading === ws.workspaceId;
+            {(() => {
+              const { groups, unassigned } = groupWorkspacesByProject(projects, workspaces);
+              const byProjectName = projectNameById();
 
-              return (
-                <div
-                  key={ws.workspaceId}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "16px",
-                    padding: "20px 24px",
-                    borderBottom: "1px solid #f1f3f5",
-                    backgroundColor: deleteConfirm === ws.workspaceId ? "#fff5f5" : "transparent",
-                    transition: "background-color 0.2s",
-                  }}
-                >
-                  {/* 아이콘 */}
+              const renderWorkspaceRow = (ws: Workspace) => {
+                const status = getContainerStatus(ws.workspaceId);
+                const statusInfo = STATUS_COLORS[status] || STATUS_COLORS.none;
+                const container = containers[ws.workspaceId];
+                const isLoading = actionLoading === ws.workspaceId;
+
+                return (
                   <div
+                    key={ws.workspaceId}
                     style={{
-                      width: "48px",
-                      height: "48px",
-                      borderRadius: "8px",
-                      backgroundColor: statusInfo.bg,
                       display: "flex",
                       alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: "24px",
+                      gap: "16px",
+                      padding: "16px 24px",
+                      borderTop: "1px solid #f1f3f5",
+                      backgroundColor: deleteConfirm === ws.workspaceId ? "#fff5f5" : "transparent",
+                      transition: "background-color 0.2s",
                     }}
                   >
-                    {status === "running" ? "💻" : status === "stopped" ? "⏸️" : "📁"}
-                  </div>
-
-                  {/* 정보 */}
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "4px" }}>
-                      <span style={{ fontSize: "16px", fontWeight: 600 }}>{ws.name}</span>
-                      <span
-                        style={{
-                          padding: "2px 8px",
-                          fontSize: "12px",
-                          fontWeight: 500,
-                          backgroundColor: statusInfo.bg,
-                          color: statusInfo.text,
-                          borderRadius: "12px",
-                        }}
-                      >
-                        {statusInfo.label}
-                      </span>
+                    <div
+                      style={{
+                        width: "40px",
+                        height: "40px",
+                        borderRadius: "8px",
+                        backgroundColor: statusInfo.bg,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "20px",
+                      }}
+                    >
+                      {status === "running" ? "💻" : status === "stopped" ? "⏸️" : "📁"}
                     </div>
-                    <div style={{ fontSize: "14px", color: "#656d76" }}>
-                      <div style={{ marginBottom: "4px" }}>
-                        프로젝트:{" "}
-                        <span style={{ color: "#24292e" }}>
-                          {ws.projectId ? (projectNameById()[ws.projectId] || ws.projectId) : "미지정"}
+
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
+                        <span style={{ fontSize: "15px", fontWeight: 600 }}>{ws.name}</span>
+                        <span
+                          style={{
+                            padding: "2px 8px",
+                            fontSize: "12px",
+                            fontWeight: 500,
+                            backgroundColor: statusInfo.bg,
+                            color: statusInfo.text,
+                            borderRadius: "12px",
+                          }}
+                        >
+                          {statusInfo.label}
                         </span>
-                        {ws.projectId && (
-                          <span style={{ marginLeft: "8px", color: "#9ca3af" }}>
-                            ({ws.projectId})
-                          </span>
+                      </div>
+                      <div style={{ fontSize: "13px", color: "#656d76" }}>
+                        {ws.rootPath}
+                        {container?.port && status === "running" && (
+                          <span style={{ marginLeft: "12px", color: "#0366d6" }}>포트: {container.port}</span>
                         )}
                       </div>
-                      {ws.rootPath}
-                      {container?.port && status === "running" && (
-                        <span style={{ marginLeft: "12px", color: "#0366d6" }}>
-                          포트: {container.port}
-                        </span>
-                      )}
                     </div>
-                  </div>
 
-                  {/* 액션 버튼 */}
-                  <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                    {deleteConfirm === ws.workspaceId ? (
-                      <>
-                        <span style={{ fontSize: "13px", color: "#cf222e", marginRight: "8px" }}>
-                          삭제하시겠습니까?
-                        </span>
-                        <button
-                          onClick={(e) => handleDeleteWorkspace(ws.workspaceId, e)}
-                          disabled={isLoading}
-                          style={{
-                            padding: "8px 16px",
-                            fontSize: "13px",
-                            fontWeight: 500,
-                            backgroundColor: "#cf222e",
-                            color: "white",
-                            border: "none",
-                            borderRadius: "6px",
-                            cursor: isLoading ? "not-allowed" : "pointer",
-                            opacity: isLoading ? 0.6 : 1,
-                          }}
-                        >
-                          {isLoading ? "삭제 중..." : "확인"}
-                        </button>
-                        <button
-                          onClick={handleCancelDelete}
-                          disabled={isLoading}
-                          style={{
-                            padding: "8px 16px",
-                            fontSize: "13px",
-                            fontWeight: 500,
-                            backgroundColor: "#f6f8fa",
-                            color: "#24292e",
-                            border: "1px solid #d1d5da",
-                            borderRadius: "6px",
-                            cursor: "pointer",
-                          }}
-                        >
-                          취소
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        {/* 시작/열기 버튼 */}
-                        {status === "running" ? (
-                          <>
-                            <button
-                              onClick={(e) => handleStartIDE(ws.workspaceId, e)}
-                              disabled={isLoading}
-                              style={{
-                                padding: "8px 16px",
-                                fontSize: "13px",
-                                fontWeight: 500,
-                                backgroundColor: "#0366d6",
-                                color: "white",
-                                border: "none",
-                                borderRadius: "6px",
-                                cursor: isLoading ? "not-allowed" : "pointer",
-                                opacity: isLoading ? 0.6 : 1,
-                              }}
-                            >
-                              {isLoading ? "..." : "🔗 열기"}
-                            </button>
-                            <button
-                              onClick={(e) => handleStopIDE(ws.workspaceId, e)}
-                              disabled={isLoading}
-                              title="IDE 중지 (상태 보존)"
-                              style={{
-                                padding: "8px 16px",
-                                fontSize: "13px",
-                                fontWeight: 500,
-                                backgroundColor: "#f6f8fa",
-                                color: "#24292e",
-                                border: "1px solid #d1d5da",
-                                borderRadius: "6px",
-                                cursor: isLoading ? "not-allowed" : "pointer",
-                              }}
-                            >
-                              ⏸️ 중지
-                            </button>
-                          </>
-                        ) : (
+                    <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                      {deleteConfirm === ws.workspaceId ? (
+                        <>
+                          <span style={{ fontSize: "13px", color: "#cf222e", marginRight: "8px" }}>
+                            삭제하시겠습니까?
+                          </span>
                           <button
-                            onClick={(e) => handleStartIDE(ws.workspaceId, e)}
-                            disabled={isLoading || status === "starting" || status === "pending"}
+                            onClick={(e) => handleDeleteWorkspace(ws.workspaceId, e)}
+                            disabled={isLoading}
                             style={{
                               padding: "8px 16px",
                               fontSize: "13px",
                               fontWeight: 500,
-                              backgroundColor: "#238636",
+                              backgroundColor: "#cf222e",
                               color: "white",
                               border: "none",
                               borderRadius: "6px",
-                              cursor: isLoading || status === "starting" ? "not-allowed" : "pointer",
-                              opacity: isLoading || status === "starting" ? 0.6 : 1,
+                              cursor: isLoading ? "not-allowed" : "pointer",
+                              opacity: isLoading ? 0.6 : 1,
                             }}
                           >
-                            {isLoading || status === "starting" || status === "pending"
-                              ? "시작 중..."
-                              : "▶ 시작"}
+                            {isLoading ? "삭제 중..." : "확인"}
                           </button>
-                        )}
-
-                        {/* 삭제 버튼 */}
-                        <button
-                          onClick={(e) => handleDeleteWorkspace(ws.workspaceId, e)}
-                          disabled={isLoading}
-                          title="워크스페이스 삭제"
-                          style={{
-                            padding: "8px 12px",
-                            fontSize: "13px",
-                            fontWeight: 500,
-                            backgroundColor: "transparent",
-                            color: "#656d76",
-                            border: "1px solid #d1d5da",
-                            borderRadius: "6px",
-                            cursor: "pointer",
-                          }}
-                        >
-                          🗑️
-                        </button>
-                      </>
-                    )}
+                          <button
+                            onClick={handleCancelDelete}
+                            disabled={isLoading}
+                            style={{
+                              padding: "8px 16px",
+                              fontSize: "13px",
+                              fontWeight: 500,
+                              backgroundColor: "#f6f8fa",
+                              color: "#24292e",
+                              border: "1px solid #d1d5da",
+                              borderRadius: "6px",
+                              cursor: "pointer",
+                            }}
+                          >
+                            취소
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          {status === "running" ? (
+                            <>
+                              <button
+                                onClick={(e) => handleStartIDE(ws.workspaceId, e)}
+                                disabled={isLoading}
+                                style={{
+                                  padding: "8px 16px",
+                                  fontSize: "13px",
+                                  fontWeight: 500,
+                                  backgroundColor: "#0366d6",
+                                  color: "white",
+                                  border: "none",
+                                  borderRadius: "6px",
+                                  cursor: isLoading ? "not-allowed" : "pointer",
+                                  opacity: isLoading ? 0.6 : 1,
+                                }}
+                              >
+                                {isLoading ? "..." : "🔗 열기"}
+                              </button>
+                              <button
+                                onClick={(e) => handleStopIDE(ws.workspaceId, e)}
+                                disabled={isLoading}
+                                title="IDE 중지 (상태 보존)"
+                                style={{
+                                  padding: "8px 16px",
+                                  fontSize: "13px",
+                                  fontWeight: 500,
+                                  backgroundColor: "#f6f8fa",
+                                  color: "#24292e",
+                                  border: "1px solid #d1d5da",
+                                  borderRadius: "6px",
+                                  cursor: isLoading ? "not-allowed" : "pointer",
+                                }}
+                              >
+                                ⏸️ 중지
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={(e) => handleStartIDE(ws.workspaceId, e)}
+                              disabled={isLoading || status === "starting" || status === "pending"}
+                              style={{
+                                padding: "8px 16px",
+                                fontSize: "13px",
+                                fontWeight: 500,
+                                backgroundColor: "#238636",
+                                color: "white",
+                                border: "none",
+                                borderRadius: "6px",
+                                cursor: isLoading || status === "starting" ? "not-allowed" : "pointer",
+                                opacity: isLoading || status === "starting" ? 0.6 : 1,
+                              }}
+                            >
+                              {isLoading || status === "starting" || status === "pending" ? "시작 중..." : "▶ 시작"}
+                            </button>
+                          )}
+                          <button
+                            onClick={(e) => handleDeleteWorkspace(ws.workspaceId, e)}
+                            disabled={isLoading}
+                            title="워크스페이스 삭제"
+                            style={{
+                              padding: "8px 12px",
+                              fontSize: "13px",
+                              fontWeight: 500,
+                              backgroundColor: "transparent",
+                              color: "#656d76",
+                              border: "1px solid #d1d5da",
+                              borderRadius: "6px",
+                              cursor: "pointer",
+                            }}
+                          >
+                            🗑️
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
-                </div>
+                );
+              };
+
+              const renderProjectCard = (projectId: string, projectName: string, list: Workspace[]) => {
+                const expanded = expandedProjectIds.has(projectId);
+                const running = list.filter((w) => getContainerStatus(w.workspaceId) === "running").length;
+                const stopped = list.filter((w) => getContainerStatus(w.workspaceId) === "stopped").length;
+
+                return (
+                  <div key={projectId} style={{ borderBottom: "1px solid #d1d5da" }}>
+                    <div
+                      style={{
+                        padding: "14px 24px",
+                        backgroundColor: "#ffffff",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: "12px",
+                      }}
+                    >
+                      <button
+                        onClick={() => toggleProject(projectId)}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "10px",
+                          background: "transparent",
+                          border: "none",
+                          cursor: "pointer",
+                          padding: 0,
+                          textAlign: "left",
+                          flex: 1,
+                        }}
+                        aria-label={`프로젝트 ${projectName} ${expanded ? "접기" : "펼치기"}`}
+                      >
+                        <span style={{ fontSize: "14px", color: "#656d76" }}>{expanded ? "▾" : "▸"}</span>
+                        <div>
+                          <div style={{ fontSize: "14px", fontWeight: 700 }}>{projectName}</div>
+                          <div style={{ fontSize: "12px", color: "#9ca3af" }}>{projectId}</div>
+                        </div>
+                        <div style={{ display: "flex", gap: "10px", marginLeft: "16px", color: "#656d76", fontSize: "12px" }}>
+                          <span>WS {list.length}</span>
+                          <span>🟢 {running}</span>
+                          <span>⏸️ {stopped}</span>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => openCreateModalForProject(projectId)}
+                        style={{
+                          padding: "8px 12px",
+                          fontSize: "12px",
+                          fontWeight: 600,
+                          backgroundColor: "#238636",
+                          color: "white",
+                          border: "none",
+                          borderRadius: "6px",
+                          cursor: "pointer",
+                        }}
+                        aria-label={`${projectName}에 워크스페이스 추가`}
+                      >
+                        + 워크스페이스 추가
+                      </button>
+                    </div>
+                    {expanded && <div>{list.map(renderWorkspaceRow)}</div>}
+                  </div>
+                );
+              };
+
+              return (
+                <>
+                  {groups.map((g) => renderProjectCard(g.projectId, g.projectName, g.workspaces))}
+                  {unassigned.length > 0 &&
+                    renderProjectCard("unassigned", "미지정", unassigned)}
+                  {groups.length === 0 && unassigned.length === 0 && (
+                    <div style={{ padding: "40px 24px", color: "#656d76" }}>
+                      표시할 프로젝트/워크스페이스가 없습니다.
+                    </div>
+                  )}
+                </>
               );
-            })}
+            })()}
           </div>
         )}
       </div>
