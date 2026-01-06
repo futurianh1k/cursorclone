@@ -233,8 +233,14 @@ class IDEService:
         """모든 IDE 컨테이너 조회"""
         return _ide_containers.copy()
     
-    async def stop_container(self, container_id: str) -> Tuple[bool, str]:
-        """IDE 컨테이너 정지"""
+    async def stop_container(self, container_id: str, remove: bool = False) -> Tuple[bool, str]:
+        """
+        IDE 컨테이너 정지
+        
+        Args:
+            container_id: 컨테이너 ID
+            remove: True면 컨테이너 삭제, False면 중지만 (상태 보존)
+        """
         if container_id not in _ide_containers:
             return False, "컨테이너를 찾을 수 없습니다"
         
@@ -243,21 +249,81 @@ class IDEService:
                 try:
                     container = self.client.containers.get(container_id)
                     container.stop(timeout=10)
-                    container.remove()
+                    if remove:
+                        container.remove()
                 except NotFound:
                     pass
             
-            port = _ide_containers[container_id].get("port")
-            if port:
-                self._release_port(port)
-            
-            _ide_containers[container_id]["status"] = "stopped"
-            logger.info(f"IDE 컨테이너 정지: {container_id}")
-            return True, "컨테이너가 정지되었습니다"
+            # remove=True인 경우에만 포트 해제
+            if remove:
+                port = _ide_containers[container_id].get("port")
+                if port:
+                    self._release_port(port)
+                del _ide_containers[container_id]
+                logger.info(f"IDE 컨테이너 삭제: {container_id}")
+                return True, "컨테이너가 삭제되었습니다"
+            else:
+                _ide_containers[container_id]["status"] = "stopped"
+                logger.info(f"IDE 컨테이너 정지 (상태 보존): {container_id}")
+                return True, "컨테이너가 정지되었습니다. 다시 시작하면 이전 상태가 복원됩니다."
             
         except Exception as e:
             logger.error(f"IDE 컨테이너 정지 실패: {container_id}, error: {e}")
             return False, str(e)
+    
+    async def start_container(self, container_id: str) -> Tuple[bool, str, Optional[str]]:
+        """
+        중지된 IDE 컨테이너 재시작 (상태 복원)
+        
+        Returns:
+            (success, message, url)
+        """
+        if container_id not in _ide_containers:
+            return False, "컨테이너를 찾을 수 없습니다", None
+        
+        container_info = _ide_containers[container_id]
+        
+        if container_info["status"] == "running":
+            return True, "컨테이너가 이미 실행 중입니다", container_info.get("url")
+        
+        try:
+            if self.client:
+                try:
+                    container = self.client.containers.get(container_id)
+                    container.start()
+                    
+                    # 시작 대기 (최대 30초)
+                    for _ in range(30):
+                        container.reload()
+                        if container.status == "running":
+                            break
+                        await asyncio.sleep(1)
+                    
+                    container_info["status"] = "running"
+                    url = f"{IDE_BASE_URL}:{container_info['port']}"
+                    container_info["url"] = url
+                    logger.info(f"IDE 컨테이너 재시작: {container_id}")
+                    return True, "컨테이너가 시작되었습니다", url
+                    
+                except NotFound:
+                    # 컨테이너가 삭제된 경우 새로 생성
+                    logger.warning(f"컨테이너 {container_id}가 없음, 새로 생성")
+                    del _ide_containers[container_id]
+                    return False, "컨테이너가 존재하지 않습니다. 새로 생성해주세요.", None
+            else:
+                # Mock 모드
+                container_info["status"] = "running"
+                url = f"{IDE_BASE_URL}:{container_info['port']}"
+                container_info["url"] = url
+                return True, "컨테이너가 시작되었습니다 (Mock)", url
+                
+        except Exception as e:
+            logger.error(f"IDE 컨테이너 시작 실패: {container_id}, error: {e}")
+            return False, str(e), None
+    
+    async def delete_container(self, container_id: str) -> Tuple[bool, str]:
+        """IDE 컨테이너 완전 삭제"""
+        return await self.stop_container(container_id, remove=True)
 
 
 # 싱글톤 인스턴스 접근
