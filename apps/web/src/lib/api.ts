@@ -920,7 +920,9 @@ export async function listIDEContainers(workspaceId?: string): Promise<IDEContai
   const params = new URLSearchParams();
   if (workspaceId) params.append("workspace_id", workspaceId);
   
-  const response = await fetch(`${API_BASE_URL}/api/ide/containers?${params.toString()}`);
+  const response = await fetch(`${API_BASE_URL}/api/ide/containers?${params.toString()}`, {
+    headers: getAuthHeaders(),
+  });
   
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: response.statusText }));
