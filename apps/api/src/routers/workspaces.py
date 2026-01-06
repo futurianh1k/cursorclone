@@ -404,16 +404,33 @@ async def clone_github_repository(
     
     # DB에 메타데이터 저장
     try:
-        # clone도 기본적으로 "workspace별 1 project"를 자동 생성
-        project_id = f"prj_{workspace_name}_{suffix}"
-        project = ProjectModel(
-            project_id=project_id,
-            name=workspace_name,
-            owner_id=current_user.user_id,
-            org_id=current_user.org_id,
-        )
-        db.add(project)
-        await db.flush()
+        # project 선택 또는 자동 생성 (create_workspace와 동일 정책)
+        project_id: Optional[str] = None
+        if request.project_id:
+            existing_project = await db.execute(
+                select(ProjectModel).where(
+                    ProjectModel.project_id == request.project_id,
+                    ProjectModel.owner_id == current_user.user_id,
+                )
+            )
+            p = existing_project.scalar_one_or_none()
+            if not p:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail={"error": "Project not found", "code": "PROJECT_NOT_FOUND"},
+                )
+            project_id = p.project_id
+        else:
+            project_name = request.project_name or workspace_name
+            project_id = f"prj_{workspace_name}_{suffix}"
+            project = ProjectModel(
+                project_id=project_id,
+                name=project_name,
+                owner_id=current_user.user_id,
+                org_id=current_user.org_id,
+            )
+            db.add(project)
+            await db.flush()
 
         workspace_model = WorkspaceModel(
             workspace_id=workspace_id,

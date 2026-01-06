@@ -23,11 +23,57 @@ function getAuthHeaders(): Record<string, string> {
 
 
 // ============================================================
+// Projects
+// ============================================================
+
+export interface Project {
+  projectId: string;
+  name: string;
+  ownerId: string;
+  orgId?: string | null;
+}
+
+export async function listProjects(): Promise<Project[]> {
+  const response = await fetch(`${API_BASE_URL}/api/projects`, {
+    headers: getAuthHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to list projects: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function createProject(name: string): Promise<Project> {
+  const response = await fetch(`${API_BASE_URL}/api/projects`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ name }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to create project: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function getProject(projectId: string): Promise<Project> {
+  const response = await fetch(`${API_BASE_URL}/api/projects/${encodeURIComponent(projectId)}`, {
+    headers: getAuthHeaders(),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to get project: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+// ============================================================
 // Workspaces
 // ============================================================
 
 export interface Workspace {
   workspaceId: string;
+  projectId?: string | null;
   name: string;
   rootPath: string;
 }
@@ -42,11 +88,28 @@ export async function listWorkspaces(): Promise<Workspace[]> {
   return response.json();
 }
 
-export async function createWorkspace(name: string, language?: string): Promise<Workspace> {
+export type CreateWorkspaceOptions =
+  | {
+      language?: string;
+      projectId?: string;
+      projectName?: string;
+    }
+  | string
+  | undefined;
+
+export async function createWorkspace(name: string, options?: CreateWorkspaceOptions): Promise<Workspace> {
+  const isLegacyLanguage = typeof options === "string";
+  const payload: Record<string, unknown> = {
+    name,
+    language: isLegacyLanguage ? options : options?.language || "python",
+  };
+  if (!isLegacyLanguage && options?.projectId) payload["projectId"] = options.projectId;
+  if (!isLegacyLanguage && options?.projectName) payload["projectName"] = options.projectName;
+
   const response = await fetch(`${API_BASE_URL}/api/workspaces`, {
     method: "POST",
     headers: getAuthHeaders(),
-    body: JSON.stringify({ name, language: language || "python" }),
+    body: JSON.stringify(payload),
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: response.statusText }));
@@ -59,6 +122,8 @@ export interface CloneGitHubRequest {
   repositoryUrl: string;
   name?: string;
   branch?: string;
+  projectId?: string;
+  projectName?: string;
 }
 
 export async function cloneGitHubRepository(

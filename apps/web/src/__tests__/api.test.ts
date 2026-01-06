@@ -49,6 +49,7 @@ describe('API Client', () => {
     it('새 워크스페이스를 생성한다', async () => {
       const mockWorkspace = {
         workspaceId: 'ws-new',
+        projectId: 'prj-1',
         name: 'New Workspace',
         rootPath: '/new'
       }
@@ -71,6 +72,30 @@ describe('API Client', () => {
           }),
         })
       )
+    })
+
+    it('projectId/projectName을 포함해 워크스페이스를 생성한다', async () => {
+      const mockWorkspace = {
+        workspaceId: 'ws-new',
+        projectId: 'prj-1',
+        name: 'New Workspace',
+        rootPath: '/new'
+      }
+
+      ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockWorkspace,
+      })
+
+      const { createWorkspace } = await import('../lib/api')
+      await createWorkspace('New Workspace', { projectId: 'prj-1', projectName: 'My Project', language: 'python' })
+
+      const callArgs = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+      const init = callArgs[1]
+      expect(init.method).toBe('POST')
+      const body = JSON.parse(init.body)
+      expect(body.projectId).toBe('prj-1')
+      expect(body.projectName).toBe('My Project')
     })
   })
 

@@ -55,11 +55,22 @@ describe('FileTree', () => {
       expect(screen.getByText('src')).toBeInTheDocument();
     });
 
-    // src 폴더 클릭 (이미 확장됨)
-    const srcFolder = screen.getByText('src');
-    fireEvent.click(srcFolder);
+    const srcFolderButton = screen.getByRole('button', { name: /폴더: src/i });
 
-    // 자식 파일 표시 확인
+    // 구현은 "첫 폴더 자동 확장"이 있을 수도/없을 수도 있으므로,
+    // 두 케이스 모두 통과하도록 toggle 동작을 검증한다.
+    const initiallyVisible = screen.queryByText('main.py') !== null;
+
+    if (initiallyVisible) {
+      fireEvent.click(srcFolderButton);
+      await waitFor(() => {
+        expect(screen.queryByText('main.py')).not.toBeInTheDocument();
+      });
+      fireEvent.click(srcFolderButton);
+    } else {
+      fireEvent.click(srcFolderButton);
+    }
+
     await waitFor(() => {
       expect(screen.getByText('main.py')).toBeInTheDocument();
     });

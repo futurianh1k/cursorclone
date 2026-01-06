@@ -139,6 +139,8 @@ class CloneGitHubRequest(BaseModel):
     repository_url: str = Field(..., alias="repositoryUrl", min_length=1)
     name: Optional[str] = Field(default=None, max_length=100)
     branch: Optional[str] = Field(default=None, max_length=100)
+    project_id: Optional[str] = Field(default=None, alias="projectId", max_length=100, description="기존 프로젝트에 워크스페이스를 추가할 때 사용")
+    project_name: Optional[str] = Field(default=None, alias="projectName", max_length=255, description="projectId가 없을 때 새 프로젝트 생성용 이름(선택)")
     
     @field_validator("repository_url")
     @classmethod
