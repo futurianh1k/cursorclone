@@ -13,10 +13,12 @@ from .container import router as container_router
 from .ssh import router as ssh_router
 from .ide import router as ide_router
 from .ai_gateway import router as ai_gateway_router
+from .projects import router as projects_router
 
 __all__ = [
     "auth_router",
     "workspaces_router", 
+    "projects_router",
     "files_router",
     "ai_router",
     "patch_router",

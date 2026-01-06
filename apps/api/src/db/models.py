@@ -68,12 +68,38 @@ class UserModel(Base):
     sessions = relationship("UserSessionModel", back_populates="user", cascade="all, delete-orphan")
 
 
+class ProjectModel(Base):
+    """프로젝트 테이블 (1 Project : N Workspaces)"""
+    __tablename__ = "projects"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id = Column(String(100), unique=True, nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+
+    owner_id = Column(String(100), ForeignKey("users.user_id"), nullable=False, index=True)
+    org_id = Column(String(100), ForeignKey("organizations.org_id"), nullable=True, index=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # 관계
+    owner = relationship("UserModel")
+    organization = relationship("OrganizationModel")
+    workspaces = relationship("WorkspaceModel", back_populates="project")
+
+    __table_args__ = (
+        Index("idx_project_owner_created", "owner_id", "created_at"),
+        Index("idx_project_org_created", "org_id", "created_at"),
+    )
+
+
 class WorkspaceModel(Base):
     """워크스페이스 테이블"""
     __tablename__ = "workspaces"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     workspace_id = Column(String(100), unique=True, nullable=False, index=True)
+    project_id = Column(String(100), ForeignKey("projects.project_id"), nullable=False, index=True)
     name = Column(String(255), nullable=False)
     owner_id = Column(String(100), ForeignKey("users.user_id"), nullable=False, index=True)
     org_id = Column(String(100), ForeignKey("organizations.org_id"), nullable=True, index=True)
@@ -87,6 +113,7 @@ class WorkspaceModel(Base):
     # 관계
     owner = relationship("UserModel", back_populates="workspaces")
     organization = relationship("OrganizationModel", back_populates="workspaces")
+    project = relationship("ProjectModel", back_populates="workspaces")
     
     # 인덱스 (최적화됨)
     __table_args__ = (
@@ -94,6 +121,8 @@ class WorkspaceModel(Base):
         Index("idx_workspace_owner_status", "owner_id", "status"),
         # 조직별 워크스페이스 조회 (상태 필터링)
         Index("idx_workspace_org_status", "org_id", "status"),
+        # 프로젝트별 워크스페이스 조회 (상태 포함)
+        Index("idx_workspace_project_status", "project_id", "status"),
         # 마지막 접근 시간 기반 조회 (상태 포함 - 자동 정지용)
         Index("idx_workspace_last_accessed_status", "status", "last_accessed_at"),
         # 생성일 기반 정렬 (소유자별)

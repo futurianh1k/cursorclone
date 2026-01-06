@@ -37,6 +37,7 @@ load_dotenv(dotenv_path=env_path)
 from .routers import (
     auth_router,
     workspaces_router,
+    projects_router,
     files_router,
     ai_router,
     patch_router,
@@ -339,6 +340,7 @@ def debug_env():
 # API 라우터 등록
 app.include_router(auth_router)
 app.include_router(workspaces_router)
+app.include_router(projects_router)
 app.include_router(files_router)
 app.include_router(ai_router)
 app.include_router(patch_router)

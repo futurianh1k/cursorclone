@@ -170,11 +170,11 @@ async def issue_gateway_token(
     if ws.owner_id != current_user.user_id and current_user.role != "admin":
         raise HTTPException(status_code=403, detail={"error": "Forbidden", "code": "FORBIDDEN"})
 
-    # tenant_id는 org_id, project_id는 현재 프로젝트 모델이 없으므로 workspace_id로 대체
+    # tenant_id는 org_id, project_id는 workspaces.project_id
     token = jwt_auth_service.create_gateway_workspace_token(
         user_id=current_user.user_id,
         tenant_id=current_user.org_id,
-        project_id=ws.workspace_id,
+        project_id=ws.project_id,
         workspace_id=ws.workspace_id,
         role=current_user.role,
     )

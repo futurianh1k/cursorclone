@@ -6,6 +6,7 @@
 from .connection import get_db, init_db
 from .models import (
     WorkspaceModel,
+    ProjectModel,
     UserModel,
     OrganizationModel,
     AuditLogModel,
@@ -20,6 +21,7 @@ __all__ = [
     "get_db",
     "init_db",
     "WorkspaceModel",
+    "ProjectModel",
     "UserModel",
     "OrganizationModel",
     "AuditLogModel",

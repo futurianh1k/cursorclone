@@ -12,6 +12,8 @@ from .base import (
     CreateWorkspaceRequest,
     WorkspaceResponse,
     WorkspaceListResponse,
+    CreateProjectRequest,
+    ProjectResponse,
     CloneGitHubRequest,
     FileType,
     FileTreeItem,
@@ -116,6 +118,8 @@ __all__ = [
     "CreateWorkspaceRequest",
     "WorkspaceResponse",
     "WorkspaceListResponse",
+    "CreateProjectRequest",
+    "ProjectResponse",
     "CloneGitHubRequest",
     # Files
     "FileType",

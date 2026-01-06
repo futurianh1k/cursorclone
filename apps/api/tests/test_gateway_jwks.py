@@ -35,14 +35,14 @@ def test_gateway_token_has_required_claims():
     token = jwt_auth_service.create_gateway_workspace_token(
         user_id="u_test",
         tenant_id="org_default",
-        project_id="ws_test",
+        project_id="prj_test",
         workspace_id="ws_test",
         role="developer",
     )
     claims = jose_jwt.get_unverified_claims(token)
     assert claims["sub"] == "u_test"
     assert claims["tid"] == "org_default"
-    assert claims["pid"] == "ws_test"
+    assert claims["pid"] == "prj_test"
     assert claims["wid"] == "ws_test"
     assert claims["role"] == "developer"
 

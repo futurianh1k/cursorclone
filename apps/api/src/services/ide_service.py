@@ -87,6 +87,7 @@ class IDEService:
         self,
         workspace_id: str,
         user_id: str,
+        project_id: Optional[str] = None,
         tenant_id: Optional[str] = None,
         role: str = "developer",
         memory_limit: str = "2g",
@@ -132,7 +133,7 @@ class IDEService:
         
         # 비동기 컨테이너 생성
         asyncio.create_task(self._create_container_async(
-            container_id, workspace_id, user_id, tenant_id, role, port, memory_limit, cpu_limit
+            container_id, workspace_id, project_id, user_id, tenant_id, role, port, memory_limit, cpu_limit
         ))
         
         return True, f"IDE 컨테이너 생성 시작: {container_id}", f"{IDE_BASE_URL}:{port}", port
@@ -141,6 +142,7 @@ class IDEService:
         self,
         container_id: str,
         workspace_id: str,
+        project_id: Optional[str],
         user_id: str,
         tenant_id: Optional[str],
         role: str,
@@ -168,13 +170,13 @@ class IDEService:
 
                 gateway_base = os.getenv("GATEWAY_BASE_URL", "http://cursor-poc-gateway:8081")
                 # Gateway 토큰 발급 (RS256, JWKS로 검증)
-                # tenant_id/project_id는 현재 모델이 없으므로 workspace_id를 project_id로 사용
+                # pid/wid 분리: project_id가 없으면 legacy로 workspace_id를 pid로 사용
                 try:
                     from .auth_service import jwt_auth_service
                     gw_token = jwt_auth_service.create_gateway_workspace_token(
                         user_id=user_id,
                         tenant_id=tenant_id or "org_default",
-                        project_id=workspace_id,
+                        project_id=project_id or workspace_id,
                         workspace_id=workspace_id,
                         role=role,
                     )
