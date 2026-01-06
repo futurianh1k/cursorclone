@@ -29,8 +29,8 @@ class IDEType(str, Enum):
 class IDEContainerConfig(BaseModel):
     """IDE 컨테이너 설정"""
     cpu_limit: str = Field(default="2", alias="cpuLimit", description="CPU 제한 (cores)")
-    memory_limit: str = Field(default="4Gi", alias="memoryLimit", description="메모리 제한")
-    storage_size: str = Field(default="10Gi", alias="storageSize", description="스토리지 크기")
+    memory_limit: str = Field(default="2g", alias="memoryLimit", description="메모리 제한 (예: 2g, 512m)")
+    storage_size: str = Field(default="10g", alias="storageSize", description="스토리지 크기")
     gpu_enabled: bool = Field(default=False, alias="gpuEnabled", description="GPU 사용 여부")
     extensions: Optional[List[str]] = Field(default=None, description="사전 설치할 VS Code 확장")
     environment: Optional[dict] = Field(default=None, description="환경 변수")

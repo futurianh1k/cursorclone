@@ -101,7 +101,8 @@ class IDEService:
         Returns:
             (success, message, ide_url, port)
         """
-        container_id = f"ide-{workspace_id}-{uuid.uuid4().hex[:8]}"
+        # 컨테이너 이름: ide-{workspace_id} 형식으로 직관적으로 생성
+        container_id = f"ide-{workspace_id}"
         
         # 기존 컨테이너 확인
         existing = self.get_container_for_workspace(workspace_id, user_id)

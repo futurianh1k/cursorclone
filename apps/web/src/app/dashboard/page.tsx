@@ -59,17 +59,20 @@ export default function DashboardOverview() {
       const wsList = await listWorkspaces();
       setWorkspaces(wsList);
 
-      // 각 워크스페이스의 IDE 컨테이너 상태 조회
+      // 모든 IDE 컨테이너 조회 (한 번에)
       const containerMap: Record<string, IDEContainerResponse> = {};
-      for (const ws of wsList) {
-        try {
-          const result = await listIDEContainers(ws.workspaceId);
-          if (result.containers.length > 0) {
-            containerMap[ws.workspaceId] = result.containers[0];
+      try {
+        const result = await listIDEContainers();
+        // 워크스페이스 ID로 그룹화
+        for (const container of result.containers) {
+          // 워크스페이스 ID와 매칭 (컨테이너 이름에서도 추출)
+          const wsId = container.workspaceId;
+          if (!containerMap[wsId]) {
+            containerMap[wsId] = container;
           }
-        } catch {
-          // 컨테이너가 없는 경우 무시
         }
+      } catch {
+        console.warn("IDE 컨테이너 목록 조회 실패");
       }
       setContainers(containerMap);
     } catch (err) {

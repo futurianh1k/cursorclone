@@ -109,6 +109,91 @@ def get_user_id_from_header(request: Request) -> str:
 
 
 # ============================================================
+# Docker 컨테이너 스캔 (기존 컨테이너 복구)
+# ============================================================
+
+_last_scan_time = 0
+
+def scan_existing_containers():
+    """
+    기존에 실행 중인 IDE 컨테이너를 스캔하여 in-memory 저장소에 추가
+    목록 조회 시 호출 (최소 5초 간격)
+    """
+    global _last_scan_time
+    import time
+    
+    # 5초 내에 스캔했으면 스킵
+    current_time = time.time()
+    if current_time - _last_scan_time < 5:
+        return
+    _last_scan_time = current_time
+    
+    if not DOCKER_AVAILABLE:
+        logger.debug("Docker SDK not available, skipping container scan")
+        return
+    
+    try:
+        client = docker.from_env()
+        # cursor.type=ide 레이블이 있는 컨테이너만 조회
+        containers = client.containers.list(
+            all=True,  # 중지된 컨테이너도 포함
+            filters={"label": "cursor.type=ide"}
+        )
+        
+        logger.info(f"Docker 컨테이너 스캔: {len(containers)}개 발견")
+        
+        for container in containers:
+            container_id = container.name
+            
+            # 레이블에서 정보 추출
+            labels = container.labels
+            workspace_id = labels.get("cursor.workspace_id", "unknown")
+            
+            # 포트 정보 추출
+            port = None
+            if container.status == "running":
+                ports = container.ports
+                if "8080/tcp" in ports and ports["8080/tcp"]:
+                    port = int(ports["8080/tcp"][0]["HostPort"])
+                    _used_ports.add(port)
+            
+            # 상태 결정
+            status = IDEContainerStatus.STOPPED.value
+            if container.status == "running":
+                status = IDEContainerStatus.RUNNING.value
+            elif container.status == "exited":
+                status = IDEContainerStatus.STOPPED.value
+            
+            # 이미 저장소에 있으면 상태만 업데이트
+            if container_id in _ide_containers:
+                _ide_containers[container_id]["status"] = status
+                if port:
+                    _ide_containers[container_id]["port"] = port
+                    _ide_containers[container_id]["url"] = f"{IDE_BASE_URL}:{port}"
+                continue
+            
+            # 컨테이너 정보 저장
+            container_info = {
+                "container_id": container_id,
+                "workspace_id": workspace_id,
+                "user_id": "user-default",  # 기존 컨테이너는 사용자 정보 없음
+                "ide_type": IDEType.CODE_SERVER.value,
+                "status": status,
+                "url": f"{IDE_BASE_URL}:{port}" if port else None,
+                "internal_url": f"http://{container_id}:8080",
+                "port": port,
+                "created_at": container.attrs.get("Created", datetime.now(timezone.utc).isoformat()),
+                "last_accessed": None,
+                "config": IDEContainerConfig().model_dump(),
+            }
+            _ide_containers[container_id] = container_info
+            logger.info(f"기존 IDE 컨테이너 발견: {container_id}, workspace: {workspace_id}, status: {status}, port: {port}")
+    
+    except Exception as e:
+        logger.warning(f"기존 컨테이너 스캔 실패: {e}")
+
+
+# ============================================================
 # API Endpoints
 # ============================================================
 
@@ -126,7 +211,8 @@ async def create_ide_container(
     인증 필수: JWT 토큰 (Authorization: Bearer ...)
     """
     user_id = current_user.user_id
-    container_id = f"ide-{uuid.uuid4().hex[:12]}"
+    # 컨테이너 이름: ide-{workspace_id} 형식으로 직관적으로 생성
+    container_id = f"ide-{request.workspace_id}"
     
     # 기존 컨테이너 확인
     existing = next(
@@ -259,12 +345,15 @@ async def list_ide_containers(
     
     인증 필수: JWT 토큰 (Authorization: Bearer ...)
     """
+    # 기존 Docker 컨테이너 스캔 (새로 추가된 컨테이너 감지)
+    scan_existing_containers()
+    
     user_id = current_user.user_id
     
     containers = []
     for container_info in _ide_containers.values():
-        # 사용자 필터
-        if container_info["user_id"] != user_id:
+        # 사용자 필터 (user-default는 모든 사용자에게 표시)
+        if container_info["user_id"] != user_id and container_info["user_id"] != "user-default":
             continue
         # 워크스페이스 필터
         if workspace_id and container_info["workspace_id"] != workspace_id:
