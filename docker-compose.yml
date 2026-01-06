@@ -183,9 +183,10 @@ services:
   tabby:
     image: tabbyml/tabby:latest
     container_name: cursor-poc-tabby
-    command: serve --model ${TABBY_MODEL:-StarCoder2-3B} --device ${TABBY_DEVICE:-cuda}
+    command: serve --model ${TABBY_MODEL:-StarCoder2-3B} --device ${TABBY_DEVICE:-cuda} --no-webserver
     environment:
       TABBY_DISABLE_USAGE_COLLECTION: "1"
+      TABBY_DISABLE_AUTH: "1"
     volumes:
       - tabby_data:/data
     ports:
@@ -237,9 +238,10 @@ services:
   tabby-cpu:
     image: tabbyml/tabby:latest
     container_name: cursor-poc-tabby-cpu
-    command: serve --model ${TABBY_MODEL:-StarCoder2-3B} --device cpu
+    command: serve --model ${TABBY_MODEL:-StarCoder2-3B} --device cpu --no-webserver
     environment:
       TABBY_DISABLE_USAGE_COLLECTION: "1"
+      TABBY_DISABLE_AUTH: "1"
     volumes:
       - tabby_data:/data
     ports:
