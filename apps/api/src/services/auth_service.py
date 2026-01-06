@@ -16,6 +16,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography import x509
 import bcrypt
 from jose import JWTError, jwt
+import base64 as _b64
 
 # JWT 설정
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", secrets.token_urlsafe(32))
@@ -23,6 +24,97 @@ JWT_REFRESH_SECRET_KEY = os.getenv("JWT_REFRESH_SECRET_KEY", secrets.token_urlsa
 JWT_ALGORITHM = "HS256"
 JWT_ACCESS_EXPIRATION_MINUTES = 15  # 액세스 토큰: 15분
 JWT_REFRESH_EXPIRATION_DAYS = 7    # 리프레시 토큰: 7일
+
+# Gateway(JWKS/RS256) 설정 (newarchitecture v0.3)
+GATEWAY_JWT_ALGORITHM = "RS256"
+GATEWAY_TOKEN_TTL_MINUTES = int(os.getenv("GATEWAY_TOKEN_TTL_MINUTES", "720"))  # 12h
+GATEWAY_JWT_KEY_ID = os.getenv("GATEWAY_JWT_KEY_ID", "gateway-key-1")
+GATEWAY_JWT_PRIVATE_KEY_PEM = os.getenv("GATEWAY_JWT_PRIVATE_KEY_PEM")  # PEM string
+GATEWAY_JWT_KEY_DIR = os.getenv("GATEWAY_JWT_KEY_DIR", "/tmp/cursor-poc-keys")
+GATEWAY_JWT_PRIVATE_KEY_FILE = os.getenv("GATEWAY_JWT_PRIVATE_KEY_FILE", os.path.join(GATEWAY_JWT_KEY_DIR, "gateway_jwt_private.pem"))
+
+
+def _b64url_uint(n: int) -> str:
+    b = n.to_bytes((n.bit_length() + 7) // 8, "big")
+    return _b64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")
+
+
+class GatewayJWKSService:
+    """
+    Gateway 토큰 발급 및 JWKS 제공 (RS256)
+    - 금융권 VDE: 외부 IdP 없이 내부 구성도 가능하나, 운영에서는 키를 Secret으로 주입 권장
+    """
+
+    def __init__(self):
+        self._kid = GATEWAY_JWT_KEY_ID
+        self._private_key_pem, self._public_jwk = self._load_or_generate_keys()
+
+    def _load_or_generate_keys(self) -> tuple[str, dict]:
+        # 운영: PEM 환경변수 주입 권장
+        if GATEWAY_JWT_PRIVATE_KEY_PEM and "BEGIN" in GATEWAY_JWT_PRIVATE_KEY_PEM:
+            private_pem = GATEWAY_JWT_PRIVATE_KEY_PEM
+            private_key = serialization.load_pem_private_key(private_pem.encode("utf-8"), password=None)
+            public_key = private_key.public_key()
+        else:
+            # 개발/PoC: 컨테이너 파일로 키를 고정 (프로세스/재시작 간 일관성)
+            os.makedirs(GATEWAY_JWT_KEY_DIR, exist_ok=True)
+            if os.path.exists(GATEWAY_JWT_PRIVATE_KEY_FILE):
+                private_pem = open(GATEWAY_JWT_PRIVATE_KEY_FILE, "r", encoding="utf-8").read()
+                private_key = serialization.load_pem_private_key(private_pem.encode("utf-8"), password=None)
+                public_key = private_key.public_key()
+            else:
+                private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+                public_key = private_key.public_key()
+                private_pem = private_key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.PKCS8,
+                    encryption_algorithm=serialization.NoEncryption(),
+                ).decode("utf-8")
+                # 파일 저장(권한 최소화)
+                tmp = GATEWAY_JWT_PRIVATE_KEY_FILE + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as f:
+                    f.write(private_pem)
+                os.replace(tmp, GATEWAY_JWT_PRIVATE_KEY_FILE)
+                try:
+                    os.chmod(GATEWAY_JWT_PRIVATE_KEY_FILE, 0o600)
+                except Exception:
+                    pass
+
+        pub_numbers = public_key.public_numbers()
+        jwk = {
+            "kty": "RSA",
+            "use": "sig",
+            "kid": self._kid,
+            "alg": GATEWAY_JWT_ALGORITHM,
+            "n": _b64url_uint(pub_numbers.n),
+            "e": _b64url_uint(pub_numbers.e),
+        }
+        return private_pem, jwk
+
+    def jwks(self) -> dict:
+        return {"keys": [self._public_jwk]}
+
+    def create_gateway_token(
+        self,
+        user_id: str,
+        tenant_id: str,
+        project_id: str,
+        workspace_id: str,
+        role: str,
+    ) -> str:
+        expires_at = datetime.utcnow() + timedelta(minutes=GATEWAY_TOKEN_TTL_MINUTES)
+        payload = {
+            "sub": user_id,
+            # v0.3 기대 클레임 키 (gateway/app/auth_async.py와 정합)
+            "tid": tenant_id,
+            "pid": project_id,
+            "wid": workspace_id,
+            "role": role,
+            "type": "gateway",
+            "exp": expires_at,
+            "iat": datetime.utcnow(),
+        }
+        return jwt.encode(payload, self._private_key_pem, algorithm=GATEWAY_JWT_ALGORITHM, headers={"kid": self._kid})
 
 
 class EncryptionService:
@@ -192,6 +284,30 @@ class JWTAuthService:
             return payload.get("jti")
         return None
 
+    # ============================================================
+    # Gateway v0.3 (JWKS/RS256) helpers
+    # ============================================================
+
+    @staticmethod
+    def get_gateway_jwks() -> dict:
+        return gateway_jwks_service.jwks()
+
+    @staticmethod
+    def create_gateway_workspace_token(
+        user_id: str,
+        tenant_id: str,
+        project_id: str,
+        workspace_id: str,
+        role: str,
+    ) -> str:
+        return gateway_jwks_service.create_gateway_token(
+            user_id=user_id,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            workspace_id=workspace_id,
+            role=role,
+        )
+
 
 class SSHAuthService:
     """SSH 키 기반 인증 서비스"""
@@ -358,6 +474,7 @@ class APIKeyAuthService:
 encryption_service = EncryptionService()
 password_service = PasswordService()
 jwt_auth_service = JWTAuthService()
+gateway_jwks_service = GatewayJWKSService()
 ssh_auth_service = SSHAuthService(encryption_service)
 mtls_auth_service = mTLSAuthService(encryption_service)
 api_key_auth_service = APIKeyAuthService()

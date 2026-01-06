@@ -122,6 +122,8 @@ async def create_workspace(
         _provision_ide_container,
         workspace_id,
         current_user.user_id,
+        current_user.org_id,
+        current_user.role,
         db,
     )
     logger.info(f"IDE container provisioning started for workspace: {workspace_id}")
@@ -136,6 +138,8 @@ async def create_workspace(
 async def _provision_ide_container(
     workspace_id: str,
     user_id: str,
+    tenant_id: str,
+    role: str,
     db: AsyncSession,
 ):
     """
@@ -148,6 +152,8 @@ async def _provision_ide_container(
         success, message, ide_url, port = await ide_service.create_ide_container(
             workspace_id=workspace_id,
             user_id=user_id,
+            tenant_id=tenant_id,
+            role=role,
         )
         
         if success:

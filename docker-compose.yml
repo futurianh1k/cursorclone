@@ -110,8 +110,12 @@ services:
     working_dir: /app/gateway
     command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8081"]
     environment:
-      # Dev용 (운영에서는 JWKS 설정 필요)
-      JWT_DEV_MODE: ${JWT_DEV_MODE:-true}
+      # newarchitecture: 운영 형태(JWKS 기반). 개발에서 dev 토큰을 쓰려면 true로 설정.
+      JWT_DEV_MODE: ${JWT_DEV_MODE:-false}
+      JWT_JWKS_URL: ${JWT_JWKS_URL:-http://cursor-poc-api:8000/api/auth/jwks}
+      JWT_JWKS_CACHE_TTL_SECONDS: ${JWT_JWKS_CACHE_TTL_SECONDS:-300}
+      JWT_JWKS_REFRESH_SECONDS: ${JWT_JWKS_REFRESH_SECONDS:-60}
+      JWT_JWKS_FAIL_OPEN: ${JWT_JWKS_FAIL_OPEN:-false}
       # Upstreams
       UPSTREAM_TABBY: ${UPSTREAM_TABBY:-http://cursor-poc-tabby:8080}
       UPSTREAM_CHAT: ${UPSTREAM_CHAT:-http://cursor-poc-vllm:8000}

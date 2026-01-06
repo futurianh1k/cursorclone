@@ -22,7 +22,7 @@
   
   "// Tabby 자동완성 설정": "",
   "tabby.api.endpoint": "http://cursor-poc-gateway:8081",
-  "tabby.api.authToken": "dev",
+  "tabby.api.authToken": "",
   "tabby.inlineCompletion.triggerMode": "auto",
   "tabby.usage.anonymousUsageTracking": false,
   

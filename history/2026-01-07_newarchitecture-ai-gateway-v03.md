@@ -30,6 +30,10 @@
 - **클라이언트(IDE/웹) 설정을 Gateway로 전환**
   - code-server(IDE) 내 확장(Continue/Tabby)이 직접 upstream(vLLM/Tabby)을 호출하지 않고 Gateway(`cursor-poc-gateway:8081`)만 호출하도록 설정 변경
   - `docker-compose.yml`에 `gateway` 서비스 추가(헬스체크 `/healthz`)
+- **JWT/JWKS 운영 경로(Dev 토큰 → RS256 JWKS)**
+  - `apps/api/src/services/auth_service.py`: Gateway 검증용 RS256 키/JWKS + 워크스페이스 스코프 Gateway 토큰 발급 추가
+  - `apps/api/src/routers/auth.py`: `GET /api/auth/jwks`, `POST /api/auth/gateway-token` 추가
+  - `apps/api/src/services/ide_service.py`: code-server 컨테이너에 워크스페이스별 설정 파일(토큰 포함)을 생성/마운트하여 Tabby/Continue가 Gateway를 인증 호출하도록 변경
 
 ## 테스트 및 검증 방법
 - 단위 테스트:
@@ -39,6 +43,11 @@
 - 로컬 라우팅 확인(예시):
   - `POST /v1/chat/completions` (Bearer dev) → 200
   - `POST /v1/completions` (Bearer dev, Tabby segments payload) → 응답 반환
+- RS256/JWKS 인증 확인(예시):
+  - `GET /api/auth/jwks` → 200 + keys 반환
+  - (임시) `docker exec cursor-poc-api python -c ... create_gateway_workspace_token ...` 로 발급한 토큰으로
+    - `POST /v1/chat/completions` → 200
+    - `POST /v1/completions` → 200
 
 ## 향후 작업 제안 / 주의사항
 - PRD의 “Workspace -> AI Gateway 단일 경유”를 시스템 전체에 적용하려면:

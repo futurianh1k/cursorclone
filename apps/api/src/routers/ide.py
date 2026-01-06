@@ -648,6 +648,8 @@ async def get_workspace_ide_url(
     success, message, ide_url, port = await ide_service.create_ide_container(
         workspace_id=workspace_id,
         user_id=user_id,
+        tenant_id=current_user.org_id,
+        role=current_user.role,
     )
     
     if success and ide_url:

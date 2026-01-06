@@ -24,6 +24,7 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel, Field
 import secrets
 import logging
+import os
 
 from ..middleware.rate_limiter import limiter
 
@@ -35,6 +36,7 @@ from ..models import (
     ErrorResponse,
 )
 from ..db import get_db, UserModel, OrganizationModel, UserSessionModel
+from ..db.models import WorkspaceModel
 from ..services.auth_service import (
     password_service,
     jwt_auth_service,
@@ -83,6 +85,18 @@ class LoginWith2FARequest(LoginRequest):
     totp_code: Optional[str] = Field(None, description="TOTP 코드 (2FA 활성화 시 필수)")
 
 
+class GatewayTokenRequest(BaseModel):
+    """AI Gateway용 워크스페이스 스코프 토큰 요청"""
+    workspace_id: str = Field(..., description="워크스페이스 ID")
+
+
+class GatewayTokenResponse(BaseModel):
+    """AI Gateway용 워크스페이스 스코프 토큰 응답"""
+    token: str
+    token_type: str = "bearer"
+    expires_in: int = Field(..., description="만료까지 초")
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: AsyncSession = Depends(get_db),
@@ -123,6 +137,50 @@ async def get_current_user(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail={"error": "Invalid or expired token", "code": "UNAUTHORIZED"},
     )
+
+
+@router.get("/jwks")
+async def jwks():
+    """
+    AI Gateway 검증용 JWKS 제공 (RS256)
+
+    - 금융권 VDE: 외부 IdP 없이 내부 JWKS 사용 가능
+    - Gateway는 JWT_JWKS_URL로 이 엔드포인트를 참조
+    """
+    return jwt_auth_service.get_gateway_jwks()
+
+
+@router.post("/gateway-token", response_model=GatewayTokenResponse)
+async def issue_gateway_token(
+    req: GatewayTokenRequest,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    AI Gateway용 워크스페이스 스코프 토큰 발급
+
+    - 클레임: sub/tid/pid/wid/role
+    - 권한: 워크스페이스 owner 또는 admin
+    """
+    ws = await db.execute(select(WorkspaceModel).where(WorkspaceModel.workspace_id == req.workspace_id))
+    ws = ws.scalar_one_or_none()
+    if not ws:
+        raise HTTPException(status_code=404, detail={"error": "Workspace not found", "code": "WORKSPACE_NOT_FOUND"})
+
+    if ws.owner_id != current_user.user_id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail={"error": "Forbidden", "code": "FORBIDDEN"})
+
+    # tenant_id는 org_id, project_id는 현재 프로젝트 모델이 없으므로 workspace_id로 대체
+    token = jwt_auth_service.create_gateway_workspace_token(
+        user_id=current_user.user_id,
+        tenant_id=current_user.org_id,
+        project_id=ws.workspace_id,
+        workspace_id=ws.workspace_id,
+        role=current_user.role,
+    )
+
+    ttl_minutes = int(os.getenv("GATEWAY_TOKEN_TTL_MINUTES", "720"))
+    return GatewayTokenResponse(token=token, expires_in=ttl_minutes * 60)
 
 
 @router.post(

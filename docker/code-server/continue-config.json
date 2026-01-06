@@ -7,7 +7,7 @@
       "provider": "openai",
       "model": "Qwen/Qwen2.5-Coder-7B-Instruct",
       "apiBase": "http://cursor-poc-gateway:8081/v1",
-      "apiKey": "dev"
+      "apiKey": ""
     }
   ],
 

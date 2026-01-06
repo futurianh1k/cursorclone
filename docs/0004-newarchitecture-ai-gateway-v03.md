@@ -19,6 +19,9 @@
 - IDE/웹 클라이언트는 Gateway로 호출 경로를 전환
   - code-server: Continue/Tabby endpoint를 `cursor-poc-gateway:8081`로 변경
   - docker-compose: `gateway` 서비스 추가 및 8081 포트 노출
+- JWT/JWKS(운영 경로) 연결
+  - API가 `GET /api/auth/jwks`로 JWKS 제공 (RS256)
+  - IDE(code-server) 컨테이너는 워크스페이스별 Gateway 토큰을 설정 파일로 주입받아 Gateway에 인증 호출
 
 ## 변경 파일(핵심)
 - `apps/gateway/app/main.py`
@@ -30,7 +33,11 @@
 - `apps/gateway/tests/test_gateway_nonnegotiables.py`
 - `docker/code-server/settings.json`, `docker/code-server/continue/config.json`, `docker/code-server/tabby-settings.json`
 - `docker-compose.yml`
+- `apps/api/src/services/auth_service.py`
+- `apps/api/src/routers/auth.py`
+- `apps/api/src/services/ide_service.py`
 
 ## 테스트
 - `pytest apps/gateway/tests/test_gateway_nonnegotiables.py`
+- `pytest apps/api/tests/test_gateway_jwks.py`
 

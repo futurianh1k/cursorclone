@@ -6,7 +6,7 @@
       "provider": "openai",
       "model": "Qwen/Qwen2.5-Coder-7B-Instruct",
       "apiBase": "http://cursor-poc-gateway:8081/v1",
-      "apiKey": "dev",
+      "apiKey": "",
       "contextLength": 4096
     }
   ],
@@ -15,7 +15,7 @@
     "provider": "openai",
     "model": "StarCoder2-3B",
     "apiBase": "http://cursor-poc-gateway:8081/v1",
-    "apiKey": "dev"
+    "apiKey": ""
   },
   "slashCommands": [
     {
