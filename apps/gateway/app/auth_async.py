@@ -1,6 +1,6 @@
 import json
 from typing import Optional
-import jwt
+from jose import jwt as jose_jwt
 
 from .config import settings
 from .auth import Identity, AuthError, _load_jwks_from_file, _select_key_from_jwks
@@ -27,7 +27,7 @@ async def verify_bearer_token_async(authorization: Optional[str]) -> Identity:
         raise AuthError("AUTH_MISCONFIGURED_JWKS", 500)
 
     try:
-        header = jwt.get_unverified_header(token)
+        header = jose_jwt.get_unverified_header(token)
         kid = header.get("kid")
         alg = header.get("alg", "RS256")
 
@@ -40,16 +40,14 @@ async def verify_bearer_token_async(authorization: Optional[str]) -> Identity:
         if not key:
             raise AuthError("AUTH_UNKNOWN_KID", 401)
 
-        signing_key = jwt.algorithms.get_default_algorithms()[key["kty"]].from_jwk(json.dumps(key))
-
-        options = {"verify_aud": bool(settings.jwt_audience)}
+        # python-jose는 JWK(dict)도 key로 처리 가능
         kwargs = {}
         if settings.jwt_audience:
             kwargs["audience"] = settings.jwt_audience
         if settings.jwt_issuer:
             kwargs["issuer"] = settings.jwt_issuer
 
-        claims = jwt.decode(token, signing_key, algorithms=[alg], options=options, **kwargs)
+        claims = jose_jwt.decode(token, key, algorithms=[alg], **kwargs)
 
     except AuthError:
         raise

@@ -4,7 +4,6 @@ import httpx
 import time
 import json
 import asyncio
-import orjson
 
 from .config import settings
 from .auth import AuthError, Identity
@@ -52,7 +51,7 @@ async def ops_retention_purge(request: Request):
     key = request.headers.get("x-ops-key")
     if not key or key != "change-me":
         return Response(
-            content=orjson.dumps(_json_error("AUTH_FORBIDDEN", "ops")),
+            content=json.dumps(_json_error("AUTH_FORBIDDEN", "ops"), ensure_ascii=False).encode("utf-8"),
             status_code=403,
             media_type="application/json",
         )
@@ -69,12 +68,19 @@ async def gateway_middleware(request: Request, call_next):
     corr = request.headers.get("x-correlation-id") or Identity.new_correlation_id()
     policy_version = "policy-0.3"
 
+    # Ops/Docs endpoints는 인증 없이 접근 가능해야 함 (헬스체크/모니터링/OpenAPI 핀 검증)
+    if request.url.path in ("/healthz", "/metrics", "/openapi.json") or request.url.path.startswith(("/docs", "/redoc")):
+        resp = await call_next(request)
+        resp.headers["X-Correlation-Id"] = corr
+        resp.headers["X-Policy-Version"] = policy_version
+        return resp
+
     # AuthN (async)
     try:
         identity = await verify_bearer_token_async(request.headers.get("authorization"))
     except AuthError as e:
         return Response(
-            content=orjson.dumps(_json_error(e.code, corr)),
+            content=json.dumps(_json_error(e.code, corr), ensure_ascii=False).encode("utf-8"),
             status_code=e.status,
             media_type="application/json",
             headers={"X-Correlation-Id": corr},
@@ -85,7 +91,7 @@ async def gateway_middleware(request: Request, call_next):
         authorize_path(identity, request.url.path)
     except AuthError as e:
         return Response(
-            content=orjson.dumps(_json_error(e.code, corr)),
+            content=json.dumps(_json_error(e.code, corr), ensure_ascii=False).encode("utf-8"),
             status_code=e.status,
             media_type="application/json",
             headers={"X-Correlation-Id": corr, "X-Policy-Version": policy_version},
@@ -110,7 +116,7 @@ async def gateway_middleware(request: Request, call_next):
             extra={"dlp_stage": "pre"},
         )
         return Response(
-            content=orjson.dumps(_json_error("DLP_BLOCKED", corr)),
+            content=json.dumps(_json_error("DLP_BLOCKED", corr), ensure_ascii=False).encode("utf-8"),
             status_code=400,
             media_type="application/json",
             headers={"X-Correlation-Id": corr, "X-Policy-Version": policy_version},
@@ -119,7 +125,7 @@ async def gateway_middleware(request: Request, call_next):
     route = resolve_route(request.url.path)
     if not route:
         return Response(
-            content=orjson.dumps(_json_error("NOT_FOUND", corr)),
+            content=json.dumps(_json_error("NOT_FOUND", corr), ensure_ascii=False).encode("utf-8"),
             status_code=404,
             media_type="application/json",
             headers={"X-Correlation-Id": corr, "X-Policy-Version": policy_version},
@@ -203,11 +209,11 @@ async def gateway_middleware(request: Request, call_next):
         except httpx.TimeoutException:
             status_code = 504
             content_type = "application/json"
-            content = orjson.dumps(_json_error("UPSTREAM_TIMEOUT", corr))
+            content = json.dumps(_json_error("UPSTREAM_TIMEOUT", corr), ensure_ascii=False).encode("utf-8")
         except httpx.HTTPError:
             status_code = 503
             content_type = "application/json"
-            content = orjson.dumps(_json_error("UPSTREAM_UNAVAILABLE", corr))
+            content = json.dumps(_json_error("UPSTREAM_UNAVAILABLE", corr), ensure_ascii=False).encode("utf-8")
 
     # Post-processing: agent diff hash capture
     diff_hash = None

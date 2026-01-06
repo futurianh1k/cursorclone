@@ -5,8 +5,8 @@
       "title": "On-Prem Qwen Coder",
       "provider": "openai",
       "model": "Qwen/Qwen2.5-Coder-7B-Instruct",
-      "apiBase": "http://cursor-poc-vllm:8000/v1",
-      "apiKey": "not-needed",
+      "apiBase": "http://cursor-poc-gateway:8081/v1",
+      "apiKey": "dev",
       "contextLength": 4096
     }
   ],
@@ -14,8 +14,8 @@
     "title": "Tabby Autocomplete",
     "provider": "openai",
     "model": "StarCoder2-3B",
-    "apiBase": "http://cursor-poc-tabby:8080/v1",
-    "apiKey": "not-needed"
+    "apiBase": "http://cursor-poc-gateway:8081/v1",
+    "apiKey": "dev"
   },
   "slashCommands": [
     {

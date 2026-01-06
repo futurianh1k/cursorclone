@@ -36,6 +36,8 @@ def test_dlp_default_mode_is_pre_only():
     "path,expected",
     [
         ("/v1/autocomplete", "autocomplete"),
+        ("/v1/completions", "autocomplete"),
+        ("/v1/health", "autocomplete"),
         ("/v1/chat", "chat"),
         ("/v1/agent", "agent"),
         ("/v1/rag/query", "rag"),

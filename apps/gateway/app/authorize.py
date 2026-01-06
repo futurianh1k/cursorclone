@@ -9,7 +9,7 @@ def require_role(identity: Identity, min_role: str):
 
 
 def authorize_path(identity: Identity, path: str):
-    if path.startswith("/v1/autocomplete"):
+    if path.startswith("/v1/autocomplete") or path.startswith("/v1/completions") or path.startswith("/v1/health"):
         require_role(identity, "viewer")
     elif path.startswith("/v1/chat"):
         require_role(identity, "viewer")

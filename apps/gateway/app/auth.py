@@ -3,8 +3,7 @@ from typing import Optional, Dict, Any
 import uuid
 import json
 import asyncio
-
-import jwt
+from jose import jwt as jose_jwt
 
 from .config import settings
 from .jwks_cache import jwks_cache
@@ -63,7 +62,7 @@ def verify_bearer_token(authorization: Optional[str]) -> Identity:
         raise AuthError("AUTH_MISCONFIGURED_JWKS", 500)
 
     try:
-        header = jwt.get_unverified_header(token)
+        header = jose_jwt.get_unverified_header(token)
         kid = header.get("kid")
         alg = header.get("alg", "RS256")
 
@@ -83,16 +82,12 @@ def verify_bearer_token(authorization: Optional[str]) -> Identity:
         if not key:
             raise AuthError("AUTH_UNKNOWN_KID", 401)
 
-        signing_key = jwt.algorithms.get_default_algorithms()[key["kty"]].from_jwk(json.dumps(key))
-
-        options = {"verify_aud": bool(settings.jwt_audience)}
         kwargs = {}
         if settings.jwt_audience:
             kwargs["audience"] = settings.jwt_audience
         if settings.jwt_issuer:
             kwargs["issuer"] = settings.jwt_issuer
-
-        claims = jwt.decode(token, signing_key, algorithms=[alg], options=options, **kwargs)
+        claims = jose_jwt.decode(token, key, algorithms=[alg], **kwargs)
 
     except AuthError:
         raise

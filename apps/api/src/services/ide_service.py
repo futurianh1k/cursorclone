@@ -163,8 +163,9 @@ class IDEService:
                 # code-server 컨테이너 생성
                 # --auth none 으로 비밀번호 없이 접근 가능하도록 설정
                 # Tabby 및 vLLM 서버 주소 환경변수로 전달
-                tabby_endpoint = os.getenv("TABBY_ENDPOINT", "http://cursor-poc-tabby:8080")
-                vllm_endpoint = os.getenv("VLLM_ENDPOINT", "http://cursor-poc-vllm:8000/v1")
+                # newarchitecture: 모든 AI 요청은 gateway 경유
+                tabby_endpoint = os.getenv("TABBY_ENDPOINT", "http://cursor-poc-gateway:8081")
+                vllm_endpoint = os.getenv("VLLM_ENDPOINT", "http://cursor-poc-gateway:8081/v1")
                 
                 container = self.client.containers.run(
                     IDE_CONTAINER_IMAGE,

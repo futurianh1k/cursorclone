@@ -16,6 +16,9 @@
   - 스트리밍 DLP 모드(기본 pre_only, 옵션 pre_and_incremental)
   - 감사 로그 DB 스키마 및 월별 파티셔닝 + retention purge 설계
   - OpenAPI pin 스크립트(생성/검증)
+- IDE/웹 클라이언트는 Gateway로 호출 경로를 전환
+  - code-server: Continue/Tabby endpoint를 `cursor-poc-gateway:8081`로 변경
+  - docker-compose: `gateway` 서비스 추가 및 8081 포트 노출
 
 ## 변경 파일(핵심)
 - `apps/gateway/app/main.py`
@@ -25,6 +28,8 @@
 - `apps/gateway/policies/dlp_rules.yaml`
 - `apps/gateway/scripts/generate_openapi.py`, `apps/gateway/scripts/verify_openapi.py`
 - `apps/gateway/tests/test_gateway_nonnegotiables.py`
+- `docker/code-server/settings.json`, `docker/code-server/continue/config.json`, `docker/code-server/tabby-settings.json`
+- `docker-compose.yml`
 
 ## 테스트
 - `pytest apps/gateway/tests/test_gateway_nonnegotiables.py`

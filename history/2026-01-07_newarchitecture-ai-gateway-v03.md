@@ -27,12 +27,18 @@
     - `tests/test_gateway_nonnegotiables.py`: 요구사항 기반 테스트
 - **오프라인/제약 환경 대응**
   - `apps/gateway/app/config.py`: `pydantic-settings` 미설치 환경에서도 동작하도록 fallback(환경변수 기반) 추가
+- **클라이언트(IDE/웹) 설정을 Gateway로 전환**
+  - code-server(IDE) 내 확장(Continue/Tabby)이 직접 upstream(vLLM/Tabby)을 호출하지 않고 Gateway(`cursor-poc-gateway:8081`)만 호출하도록 설정 변경
+  - `docker-compose.yml`에 `gateway` 서비스 추가(헬스체크 `/healthz`)
 
 ## 테스트 및 검증 방법
 - 단위 테스트:
   - `pytest apps/gateway/tests/test_gateway_nonnegotiables.py`
 - 실행(개발):
   - `apps/gateway/README.md`의 Run(dev) 절차 참고
+- 로컬 라우팅 확인(예시):
+  - `POST /v1/chat/completions` (Bearer dev) → 200
+  - `POST /v1/completions` (Bearer dev, Tabby segments payload) → 응답 반환
 
 ## 향후 작업 제안 / 주의사항
 - PRD의 “Workspace -> AI Gateway 단일 경유”를 시스템 전체에 적용하려면:
