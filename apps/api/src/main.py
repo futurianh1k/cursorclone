@@ -47,6 +47,7 @@ from .routers import (
     ide_router,
     ai_gateway_router,
 )
+from .routers.rag import router as rag_router
 
 # ============================================================
 # App 설정
@@ -86,34 +87,90 @@ from .middleware.security_headers import SecurityHeadersMiddleware
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# 보안 헤더 미들웨어
-app.add_middleware(SecurityHeadersMiddleware)
-
 # ============================================================
-# CORS 설정
+# CORS 설정 (보안 헤더 미들웨어보다 먼저 실행되어야 함)
 # ============================================================
 
 # 환경변수에서 허용 origin 목록 가져오기
 # ⚠️ 온프레미스 환경에서는 내부 도메인만 허용 (절대 * 사용 금지)
-ALLOWED_ORIGINS = os.getenv(
+ALLOWED_ORIGINS_STR = os.getenv(
     "CORS_ALLOWED_ORIGINS",
-    "http://localhost:3000,http://127.0.0.1:3000"
-).split(",")
-
-# "*" 가 포함되어 있으면 경고 로그
-if "*" in ALLOWED_ORIGINS:
-    logger.warning(
-        "⚠️ CORS_ALLOWED_ORIGINS에 '*'가 포함되어 있습니다. "
-        "프로덕션 환경에서는 명시적 도메인만 허용해야 합니다."
-    )
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Request-ID"],
+    ""
 )
+
+# 개발 환경에서는 모든 origin 허용 (프로덕션에서는 명시적 origin만)
+if os.getenv("ENVIRONMENT", "development") == "development" or DEBUG:
+    # 개발 환경: 일반적인 origin들 허용
+    ALLOWED_ORIGINS = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+        # Docker 네트워크 origins (일반적인 Docker 네트워크 IP 범위)
+        "http://172.18.0.1:3000",
+        "http://172.18.0.1:3001",
+        "http://172.17.0.1:3000",
+        "http://172.17.0.1:3001",
+        "http://172.16.0.1:3000",
+        "http://172.16.0.1:3001",
+        # SSH 원격 접속용 (로컬 네트워크)
+        "http://10.10.10.151:3000",
+        "http://10.10.10.151:3001",
+    ]
+    # 환경변수에서 추가 origin이 있으면 추가
+    if ALLOWED_ORIGINS_STR:
+        ALLOWED_ORIGINS.extend([origin.strip() for origin in ALLOWED_ORIGINS_STR.split(",") if origin.strip()])
+    # 중복 제거
+    ALLOWED_ORIGINS = list(set(ALLOWED_ORIGINS))
+    # 개발 환경: Docker 네트워크, localhost, 로컬 네트워크 정규식 패턴
+    import re
+    # localhost, 127.0.0.1, Docker 네트워크 (172.16-31.x.x), 사설 IP (10.x.x.x, 192.168.x.x)
+    ALLOWED_ORIGIN_REGEX = r"https?://(localhost|127\.0\.0\.1|172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+):\d+"
+    logger.info(f"CORS: Development mode - allowing origins: {ALLOWED_ORIGINS} and regex: {ALLOWED_ORIGIN_REGEX}")
+else:
+    # 프로덕션: 명시적 origin만 허용
+    if ALLOWED_ORIGINS_STR:
+        ALLOWED_ORIGINS = [origin.strip() for origin in ALLOWED_ORIGINS_STR.split(",") if origin.strip()]
+    else:
+        ALLOWED_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    
+    # "*" 가 포함되어 있으면 경고 로그
+    if "*" in ALLOWED_ORIGINS:
+        logger.warning(
+            "⚠️ CORS_ALLOWED_ORIGINS에 '*'가 포함되어 있습니다. "
+            "프로덕션 환경에서는 명시적 도메인만 허용해야 합니다."
+        )
+    
+    # 프로덕션에서는 정규식 사용 안 함
+    ALLOWED_ORIGIN_REGEX = None
+
+# CORS 미들웨어는 다른 미들웨어보다 먼저 추가해야 OPTIONS 요청이 제대로 처리됨
+# allow_headers는 리스트로 명시해야 함 (["*"]는 지원하지 않음)
+cors_kwargs = {
+    "allow_origins": ALLOWED_ORIGINS,
+    "allow_credentials": True,
+    "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    "allow_headers": [
+        "Authorization",
+        "Content-Type",
+        "X-API-Key",
+        "X-Request-ID",
+        "Accept",
+        "Accept-Language",
+        "Content-Language",
+    ],
+    "expose_headers": ["*"],
+}
+
+# 개발 환경에서는 정규식으로 origin 허용
+if os.getenv("ENVIRONMENT", "development") == "development" or DEBUG:
+    cors_kwargs["allow_origin_regex"] = ALLOWED_ORIGIN_REGEX
+
+app.add_middleware(CORSMiddleware, **cors_kwargs)
+
+# 보안 헤더 미들웨어 (CORS 이후에 실행)
+# OPTIONS 요청은 CORS preflight이므로 SecurityHeadersMiddleware에서 건너뜀
+app.add_middleware(SecurityHeadersMiddleware)
 
 # ============================================================
 # 전역 에러 핸들러
@@ -290,6 +347,7 @@ app.include_router(container_router)  # 컨테이너 관리 라우터
 app.include_router(ssh_router)        # SSH 접속 관리 라우터
 app.include_router(ide_router)        # IDE (code-server) 프로비저닝 라우터
 app.include_router(ai_gateway_router) # AI Gateway (LiteLLM/Tabby 통합) 라우터
+app.include_router(rag_router)        # RAG (코드 검색/컨텍스트 빌더) 라우터
 
 # WebSocket 라우터 등록
 app.include_router(ws_router)

@@ -74,6 +74,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         )
     
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        # OPTIONS 요청은 CORS preflight이므로 보안 헤더만 추가하고 건너뜀
+        if request.method == "OPTIONS":
+            response = await call_next(request)
+            return response
+        
         response = await call_next(request)
         
         # ============================================================

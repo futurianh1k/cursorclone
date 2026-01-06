@@ -44,3 +44,9 @@ docker>=7.0.0
 
 # WebSocket 지원
 websockets>=12.0
+
+# 벡터 데이터베이스 (RAG)
+qdrant-client>=1.7.0
+
+# 임베딩 모델 (로컬 사용 시)
+sentence-transformers>=2.2.0

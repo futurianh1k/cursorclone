@@ -1,84 +1,75 @@
-# VDE Web IDE - code-server 기반 사용자별 IDE 컨테이너
-# 용도: 브라우저 기반 VS Code + AI 코딩 확장
-# 참조: docs/claudeaivdedev/scaffold/configs/
+# ============================================================
+# 커스텀 code-server 이미지
+# Tabby + Continue 확장 사전 설치
+# ============================================================
+FROM codercom/code-server:latest
 
-FROM codercom/code-server:4.96.4
+# 메타데이터
+LABEL maintainer="cursor-onprem-poc"
+LABEL description="code-server with Tabby and Continue extensions"
 
-# =============================================
 # 시스템 패키지 설치
-# =============================================
 USER root
-
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     wget \
     python3 \
     python3-pip \
-    python3-venv \
     nodejs \
     npm \
-    build-essential \
-    openssh-client \
-    jq \
     && rm -rf /var/lib/apt/lists/*
 
-# Node.js LTS 업그레이드 (필요시)
-# RUN npm install -g n && n lts
-
-# =============================================
-# 확장 프로그램 사전 설치
-# =============================================
+# coder 사용자로 전환
 USER coder
+WORKDIR /home/coder
 
-# AI 코딩 확장
-RUN code-server --install-extension TabbyML.vscode-tabby || true \
-    && code-server --install-extension Continue.continue || true
+# ============================================================
+# VS Code 확장 프로그램 설치
+# ============================================================
 
-# 언어 지원 확장
-RUN code-server --install-extension ms-python.python || true \
-    && code-server --install-extension ms-python.black-formatter || true \
-    && code-server --install-extension dbaeumer.vscode-eslint || true \
-    && code-server --install-extension esbenp.prettier-vscode || true
+# Tabby 자동완성 확장
+RUN code-server --install-extension TabbyML.vscode-tabby || true
 
-# 유틸리티 확장
-RUN code-server --install-extension eamodio.gitlens || true \
-    && code-server --install-extension mhutchie.git-graph || true \
-    && code-server --install-extension PKief.material-icon-theme || true
+# Continue AI 채팅 확장
+RUN code-server --install-extension Continue.continue || true
 
-# =============================================
+# 기본 개발 확장들
+RUN code-server --install-extension ms-python.python || true
+RUN code-server --install-extension dbaeumer.vscode-eslint || true
+RUN code-server --install-extension esbenp.prettier-vscode || true
+RUN code-server --install-extension PKief.material-icon-theme || true
+
+# ============================================================
 # 설정 파일 복사
-# =============================================
-# VS Code 설정
+# ============================================================
+
+# 필요한 디렉토리 생성
+RUN mkdir -p /home/coder/.local/share/code-server/User \
+    && mkdir -p /home/coder/.config/tabby \
+    && mkdir -p /home/coder/.continue
+
+# VS Code 사용자 설정
 COPY --chown=coder:coder settings.json /home/coder/.local/share/code-server/User/settings.json
 
-# Continue 확장 설정
-RUN mkdir -p /home/coder/.continue
-COPY --chown=coder:coder continue-config.json /home/coder/.continue/config.json
+# Tabby 설정
+COPY --chown=coder:coder tabby-settings.json /home/coder/.config/tabby/settings.json
 
-# =============================================
-# 환경 변수
-# =============================================
-ENV SHELL=/bin/bash
-ENV LANG=C.UTF-8
-ENV LC_ALL=C.UTF-8
+# Continue AI 설정
+COPY --chown=coder:coder continue/config.json /home/coder/.continue/config.json
 
-# Tabby 서버 엔드포인트 (컨테이너 생성 시 오버라이드)
-ENV TABBY_ENDPOINT=http://cursor-poc-tabby:8080
-# LiteLLM 엔드포인트
-ENV LITELLM_ENDPOINT=http://cursor-poc-litellm:4000
+# ============================================================
+# 환경변수
+# ============================================================
+ENV TABBY_API_ENDPOINT=http://cursor-poc-tabby:8080
+ENV VLLM_API_ENDPOINT=http://cursor-poc-vllm:8000/v1
 
-# =============================================
-# 포트 및 헬스체크
-# =============================================
+# 포트 노출
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+# 헬스체크
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
     CMD curl -f http://localhost:8080/healthz || exit 1
 
-# =============================================
-# 시작 명령
-# =============================================
-# 기본 비밀번호는 환경변수로 전달 (PASSWORD)
-ENTRYPOINT ["dumb-init", "code-server", "--bind-addr", "0.0.0.0:8080", "--auth", "password"]
-CMD ["/home/coder/workspace"]
+# 시작 명령어
+ENTRYPOINT ["dumb-init", "code-server", "--bind-addr", "0.0.0.0:8080", "--auth", "none"]

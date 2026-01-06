@@ -141,9 +141,12 @@ async def signup(
     db: AsyncSession = Depends(get_db),
 ):
     """회원가입"""
+    # 이메일 소문자 변환 (validator에서 이미 변환되지만 명시적으로 처리)
+    email = request.email.lower()
+    
     # 이메일 중복 확인
     existing = await db.execute(
-        select(UserModel).where(UserModel.email == request.email)
+        select(UserModel).where(UserModel.email == email)
     )
     if existing.scalar_one_or_none():
         raise HTTPException(
@@ -170,44 +173,58 @@ async def signup(
     # 사용자 생성
     user_id = f"u_{secrets.token_urlsafe(8)}"
     password_hash = password_service.hash_password(request.password)
+    role = "developer"
     
     user = UserModel(
         user_id=user_id,
-        email=request.email,
+        email=email,
         name=request.name,
         password_hash=password_hash,
         org_id=org.org_id,
-        role="developer",
+        role=role,
     )
     db.add(user)
     await db.flush()
     
-    # JWT 토큰 생성
-    access_token = jwt_auth_service.create_access_token(user_id, request.email)
+    # JWT 토큰 쌍 생성 (Access + Refresh) - 로그인과 일관성 유지
+    tokens = jwt_auth_service.create_token_pair(user_id, email, role)
     
-    # 세션 생성 (선택사항)
-    session_token = secrets.token_urlsafe(32)
+    # 세션 생성 (리프레시 토큰 저장용)
     session = UserSessionModel(
         user_id=user.user_id,
-        session_token=session_token,
-        expires_at=datetime.utcnow() + timedelta(days=30),
+        session_token=tokens["refresh_token"][:255],  # 토큰 일부만 저장 (인덱싱용)
+        expires_at=datetime.utcnow() + timedelta(days=7),  # 리프레시 토큰 만료 시간과 일치
     )
     db.add(session)
     
     await db.commit()
     
-    return LoginResponse(
-        accessToken=access_token,
-        tokenType="bearer",
+    logger.info(f"User signed up: {user_id} ({email})")
+    
+    # LoginResponse 생성 - 명시적으로 모든 필드 전달
+    # FastAPI는 기본적으로 model_dump(by_alias=True, exclude_none=False)를 사용
+    response = LoginResponse(
+        access_token=tokens["access_token"],
+        refresh_token=tokens["refresh_token"],
+        token_type=tokens["token_type"],
+        expires_in=tokens["expires_in"],
         user=UserResponse(
-            userId=user.user_id,
+            user_id=user.user_id,
             email=user.email,
             name=user.name,
-            orgId=user.org_id,
+            org_id=user.org_id,
             role=user.role,
-            avatarUrl=user.avatar_url,
+            avatar_url=user.avatar_url,
         ),
     )
+    
+    # 디버깅: 실제 값 확인
+    if response.refresh_token is None:
+        logger.error(f"WARNING: refresh_token is None in response! tokens dict: {tokens}")
+    if response.expires_in is None:
+        logger.error(f"WARNING: expires_in is None in response! tokens dict: {tokens}")
+    
+    return response
 
 
 @router.post(
@@ -324,17 +341,17 @@ async def login(
     logger.info(f"User logged in: {user.user_id} from {ip_address}")
     
     return LoginResponse(
-        accessToken=tokens["access_token"],
-        refreshToken=tokens["refresh_token"],
-        tokenType="bearer",
-        expiresIn=tokens["expires_in"],
+        access_token=tokens["access_token"],
+        refresh_token=tokens["refresh_token"],
+        token_type="bearer",
+        expires_in=tokens["expires_in"],
         user=UserResponse(
-            userId=user.user_id,
+            user_id=user.user_id,
             email=user.email,
             name=user.name,
-            orgId=user.org_id,
+            org_id=user.org_id,
             role=user.role,
-            avatarUrl=user.avatar_url,
+            avatar_url=user.avatar_url,
         ),
     )
 

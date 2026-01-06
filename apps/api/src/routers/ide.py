@@ -525,7 +525,7 @@ async def get_workspace_ide_url(
     """
     user_id = current_user.user_id
     
-    # 기존 실행 중인 컨테이너 찾기
+    # 1. 로컬 in-memory 저장소에서 찾기 (router의 _ide_containers)
     existing = next(
         (c for c in _ide_containers.values() 
          if c["workspace_id"] == workspace_id 
@@ -543,8 +543,32 @@ async def get_workspace_ide_url(
             "status": "existing",
         }
     
-    # PoC: docker-compose의 code-server 서비스 URL 반환
-    # 실제 환경에서는 새 컨테이너 생성
+    # 2. ide_service에서 찾기 (워크스페이스 생성 시 자동 생성된 컨테이너)
+    from ..services.ide_service import get_ide_service
+    ide_service = get_ide_service()
+    service_container = ide_service.get_container_for_workspace(workspace_id, user_id)
+    
+    if service_container and service_container.get("status") == "running":
+        return {
+            "url": service_container["url"],
+            "container_id": service_container["container_id"],
+            "status": "existing",
+        }
+    
+    # 3. 컨테이너가 없으면 새로 생성
+    success, message, ide_url, port = await ide_service.create_ide_container(
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )
+    
+    if success and ide_url:
+        return {
+            "url": ide_url,
+            "container_id": None,  # 비동기로 생성되므로 아직 ID 없음
+            "status": "created",
+        }
+    
+    # 4. 실패 시 공유 인스턴스 URL 반환 (fallback)
     code_server_url = os.getenv("CODE_SERVER_URL", "http://localhost:8443")
     
     return {

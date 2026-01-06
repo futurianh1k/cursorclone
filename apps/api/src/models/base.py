@@ -3,7 +3,7 @@ Pydantic 스키마 정의 (API 요청/응답)
 Task B: API 명세 반영
 """
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from typing import Optional, List
 from enum import Enum
 import re
@@ -50,13 +50,12 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     """로그인 응답"""
     access_token: str = Field(..., alias="accessToken")
-    refresh_token: Optional[str] = Field(default=None, alias="refreshToken", description="리프레시 토큰 (토큰 갱신용)")
+    refresh_token: Optional[str] = Field(None, alias="refreshToken", description="리프레시 토큰 (토큰 갱신용)")
     token_type: str = Field(default="bearer", alias="tokenType")
-    expires_in: Optional[int] = Field(default=None, alias="expiresIn", description="액세스 토큰 만료 시간 (초)")
+    expires_in: Optional[int] = Field(None, alias="expiresIn", description="액세스 토큰 만료 시간 (초)")
     user: "UserResponse"
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class UserResponse(BaseModel):
@@ -68,8 +67,7 @@ class UserResponse(BaseModel):
     role: str = "developer"
     avatar_url: Optional[str] = Field(default=None, alias="avatarUrl")
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 # ============================================================
@@ -96,8 +94,7 @@ class WorkspaceResponse(BaseModel):
     name: str
     root_path: str = Field(..., alias="rootPath")
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class WorkspaceListResponse(BaseModel):
@@ -123,8 +120,7 @@ class CloneGitHubRequest(BaseModel):
             raise ValueError("Invalid GitHub repository URL")
         return v
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 # ============================================================
@@ -150,8 +146,7 @@ class FileTreeResponse(BaseModel):
     workspace_id: str = Field(..., alias="workspaceId")
     tree: List[FileTreeItem]
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class FileContentResponse(BaseModel):
@@ -201,8 +196,7 @@ class SelectionRange(BaseModel):
             raise ValueError("end_line must be >= start_line")
         return v
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class AIExplainRequest(BaseModel):
@@ -218,8 +212,7 @@ class AIExplainRequest(BaseModel):
             raise ValueError("Path traversal is not allowed")
         return v
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class AIExplainResponse(BaseModel):
@@ -227,8 +220,7 @@ class AIExplainResponse(BaseModel):
     explanation: str
     tokens_used: Optional[int] = Field(default=None, alias="tokensUsed")
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 # ============================================================
@@ -257,8 +249,7 @@ class AIChatRequest(BaseModel):
             raise ValueError("Path traversal is not allowed")
         return v
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class AIChatResponse(BaseModel):
@@ -267,8 +258,7 @@ class AIChatResponse(BaseModel):
     tokens_used: int = Field(default=0, alias="tokensUsed")
     suggested_action: Optional[str] = Field(default=None, alias="suggestedAction", description="제안 액션 (rewrite, explain 등)")
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 # ============================================================
@@ -290,8 +280,7 @@ class TaskStep(BaseModel):
     status: str = Field(default="pending", pattern="^(pending|in_progress|completed|failed)$")
     file_path: Optional[str] = Field(default=None, alias="filePath")
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class AIPlanRequest(BaseModel):
@@ -301,8 +290,7 @@ class AIPlanRequest(BaseModel):
     context: Optional[str] = Field(default=None, description="추가 컨텍스트")
     file_paths: Optional[List[str]] = Field(default=None, alias="filePaths", description="관련 파일 경로들")
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class AIPlanResponse(BaseModel):
@@ -312,8 +300,7 @@ class AIPlanResponse(BaseModel):
     estimated_changes: int = Field(default=0, alias="estimatedChanges", description="예상 변경 파일 수")
     tokens_used: int = Field(default=0, alias="tokensUsed")
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class AIAgentRequest(BaseModel):
@@ -323,8 +310,7 @@ class AIAgentRequest(BaseModel):
     file_paths: Optional[List[str]] = Field(default=None, alias="filePaths", description="작업 대상 파일들")
     auto_apply: bool = Field(default=False, alias="autoApply", description="자동 적용 여부")
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class FileChange(BaseModel):
@@ -342,8 +328,7 @@ class AIAgentResponse(BaseModel):
     applied: bool = Field(default=False, description="적용 여부")
     tokens_used: int = Field(default=0, alias="tokensUsed")
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class AIDebugRequest(BaseModel):
@@ -355,8 +340,7 @@ class AIDebugRequest(BaseModel):
     file_content: Optional[str] = Field(default=None, alias="fileContent", description="파일 내용")
     description: Optional[str] = Field(default=None, description="문제 설명")
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class BugFix(BaseModel):
@@ -367,8 +351,7 @@ class BugFix(BaseModel):
     fixed_code: str = Field(..., alias="fixedCode")
     explanation: str
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class AIDebugResponse(BaseModel):
@@ -379,8 +362,7 @@ class AIDebugResponse(BaseModel):
     prevention_tips: Optional[List[str]] = Field(default=None, alias="preventionTips", description="예방 팁")
     tokens_used: int = Field(default=0, alias="tokensUsed")
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class AIRewriteRequest(BaseModel):
@@ -398,8 +380,7 @@ class AIRewriteRequest(BaseModel):
             raise ValueError("Path traversal is not allowed")
         return v
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class AIRewriteResponse(BaseModel):
@@ -407,8 +388,7 @@ class AIRewriteResponse(BaseModel):
     diff: str
     tokens_used: Optional[int] = Field(default=None, alias="tokensUsed")
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 # ============================================================
@@ -420,8 +400,7 @@ class PatchValidateRequest(BaseModel):
     workspace_id: str = Field(..., alias="workspaceId")
     patch: str = Field(..., min_length=1)
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class PatchValidateResponse(BaseModel):
@@ -437,8 +416,7 @@ class PatchApplyRequest(BaseModel):
     patch: str = Field(..., min_length=1)
     dry_run: bool = Field(default=False, alias="dryRun")
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class PatchApplyResponse(BaseModel):
@@ -447,8 +425,7 @@ class PatchApplyResponse(BaseModel):
     applied_files: List[str] = Field(default_factory=list, alias="appliedFiles")
     message: Optional[str] = None
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 # ============================================================
@@ -533,8 +510,7 @@ class ServerResponse(BaseModel):
     disk_usage: Optional[int] = None
     last_health_check: Optional[str] = None
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class TestConnectionResponse(BaseModel):
@@ -557,8 +533,7 @@ class PlacementRequest(BaseModel):
     policy: Optional[PlacementPolicyType] = Field(default=PlacementPolicyType.LEAST_LOADED)
     region: Optional[str] = None
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 # ============================================================
@@ -586,8 +561,7 @@ class ContextItem(BaseModel):
     mime_type: Optional[str] = Field(default=None, alias="mimeType", description="이미지 MIME 타입")
     name: Optional[str] = Field(default=None, description="표시용 이름")
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class AIAdvancedChatRequest(BaseModel):
@@ -602,8 +576,7 @@ class AIAdvancedChatRequest(BaseModel):
     current_content: Optional[str] = Field(default=None, alias="currentContent")
     current_selection: Optional[SelectionRange] = Field(default=None, alias="currentSelection")
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class AIAdvancedChatResponse(BaseModel):
@@ -617,8 +590,7 @@ class AIAdvancedChatResponse(BaseModel):
     bug_fixes: Optional[List[BugFix]] = Field(default=None, alias="bugFixes", description="Debug 모드: 버그 수정")
     suggested_action: Optional[str] = Field(default=None, alias="suggestedAction")
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class ImageUploadResponse(BaseModel):
@@ -631,8 +603,7 @@ class ImageUploadResponse(BaseModel):
     width: Optional[int] = None
     height: Optional[int] = None
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class ImageAnalysisRequest(BaseModel):
@@ -642,8 +613,7 @@ class ImageAnalysisRequest(BaseModel):
     image_base64: Optional[str] = Field(default=None, alias="imageBase64")
     question: Optional[str] = Field(default=None, description="이미지에 대한 질문")
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class ImageAnalysisResponse(BaseModel):
@@ -652,8 +622,7 @@ class ImageAnalysisResponse(BaseModel):
     extracted_text: Optional[str] = Field(default=None, alias="extractedText", description="OCR 추출 텍스트")
     code_blocks: Optional[List[str]] = Field(default=None, alias="codeBlocks", description="추출된 코드 블록")
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class ContextSuggestRequest(BaseModel):
@@ -663,8 +632,7 @@ class ContextSuggestRequest(BaseModel):
     types: Optional[List[ContextType]] = Field(default=None, description="필터링할 타입")
     limit: int = Field(default=10, ge=1, le=50)
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class ContextSuggestion(BaseModel):
@@ -675,8 +643,7 @@ class ContextSuggestion(BaseModel):
     preview: Optional[str] = None
     relevance: float = Field(default=0.0, ge=0.0, le=1.0)
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class ContextSuggestResponse(BaseModel):
@@ -684,5 +651,4 @@ class ContextSuggestResponse(BaseModel):
     suggestions: List[ContextSuggestion]
     total: int
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)

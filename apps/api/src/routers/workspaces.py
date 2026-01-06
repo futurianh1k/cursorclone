@@ -3,6 +3,8 @@ Workspaces 라우터
 - POST /api/workspaces
 - GET /api/workspaces
 - POST /api/workspaces/clone (GitHub 클론)
+
+워크스페이스 생성 시 VSCode Server 컨테이너도 자동 생성됩니다.
 """
 
 import os
@@ -10,7 +12,7 @@ import subprocess
 import re
 import logging
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, status, Depends, Query
+from fastapi import APIRouter, HTTPException, status, Depends, Query, BackgroundTasks
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -32,6 +34,7 @@ from ..db.connection import get_db
 from ..services.workspace_service import WorkspaceService
 from ..services.workspace_manager import WorkspaceManager
 from ..services.rbac_service import require_permission, Permission
+from ..services.ide_service import get_ide_service
 
 router = APIRouter(prefix="/api/workspaces", tags=["workspaces"])
 logger = logging.getLogger(__name__)
@@ -47,17 +50,21 @@ logger = logging.getLogger(__name__)
         409: {"model": ErrorResponse, "description": "Workspace already exists"},
     },
     summary="워크스페이스 생성",
-    description="새로운 워크스페이스를 생성합니다.",
+    description="새로운 워크스페이스를 생성하고 VSCode Server 컨테이너를 자동 프로비저닝합니다.",
 )
 async def create_workspace(
     request: CreateWorkspaceRequest,
+    background_tasks: BackgroundTasks,
     current_user: UserModel = Depends(require_permission(Permission.WORKSPACE_CREATE)),
     db: AsyncSession = Depends(get_db),
 ):
     """
     새 워크스페이스를 생성합니다.
     
-    빈 워크스페이스를 생성합니다.
+    워크스페이스 생성 시 다음이 수행됩니다:
+    1. 워크스페이스 디렉토리 생성
+    2. DB에 메타데이터 저장
+    3. VSCode Server 컨테이너 자동 프로비저닝 (백그라운드)
     
     인증 필수: JWT 토큰, 권한: workspace:create
     """
@@ -99,7 +106,7 @@ async def create_workspace(
             owner_id=current_user.user_id,
             org_id=current_user.org_id,
             root_path=str(workspace_root),
-            status="stopped",
+            status="provisioning",  # 초기 상태: 프로비저닝 중
         )
         db.add(workspace_model)
         await db.commit()
@@ -110,11 +117,57 @@ async def create_workspace(
         # DB 저장 실패해도 디렉토리는 생성됨 - 로그만 남기고 계속 진행
         await db.rollback()
     
+    # VSCode Server 컨테이너 자동 생성 (백그라운드)
+    background_tasks.add_task(
+        _provision_ide_container,
+        workspace_id,
+        current_user.user_id,
+        db,
+    )
+    logger.info(f"IDE container provisioning started for workspace: {workspace_id}")
+    
     return WorkspaceResponse(
         workspaceId=workspace_id,
         name=request.name,
         rootPath=str(workspace_root),
     )
+
+
+async def _provision_ide_container(
+    workspace_id: str,
+    user_id: str,
+    db: AsyncSession,
+):
+    """
+    백그라운드에서 IDE 컨테이너 프로비저닝
+    
+    워크스페이스 생성 후 자동으로 VSCode Server 컨테이너를 생성합니다.
+    """
+    try:
+        ide_service = get_ide_service()
+        success, message, ide_url, port = await ide_service.create_ide_container(
+            workspace_id=workspace_id,
+            user_id=user_id,
+        )
+        
+        if success:
+            logger.info(f"IDE container provisioned: {workspace_id}, URL: {ide_url}")
+            # DB 상태 업데이트
+            try:
+                from sqlalchemy import update
+                await db.execute(
+                    update(WorkspaceModel)
+                    .where(WorkspaceModel.workspace_id == workspace_id)
+                    .values(status="running")
+                )
+                await db.commit()
+            except Exception as e:
+                logger.warning(f"Failed to update workspace status: {e}")
+        else:
+            logger.error(f"IDE container provisioning failed: {workspace_id}, {message}")
+            
+    except Exception as e:
+        logger.error(f"IDE container provisioning error: {workspace_id}, {e}")
 
 
 @router.get(

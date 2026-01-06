@@ -42,6 +42,9 @@ services:
       context: ./apps/api
       dockerfile: Dockerfile
     container_name: cursor-poc-api
+    # Docker 소켓 접근을 위해 docker 그룹 추가
+    group_add:
+      - "983"  # docker 그룹 GID (호스트의 /var/run/docker.sock 그룹)
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-cursor_poc}
       REDIS_URL: redis://redis:6379/0
@@ -59,10 +62,25 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       # 프로덕션 모드 - 실제 vLLM 사용
       DEV_MODE: ${DEV_MODE:-false}
+      # IDE 컨테이너 설정
+      HOST_WORKSPACE_PATH: ${HOST_WORKSPACE_PATH:-/home/ubuntu/projects/cursor-onprem-poc/workspaces}
+      IDE_CONTAINER_IMAGE: ${IDE_CONTAINER_IMAGE:-cursor-poc-code-server:latest}
+      IDE_NETWORK: cursor-onprem-poc_cursor-network
+      IDE_BASE_URL: ${IDE_BASE_URL:-http://10.10.10.151}
+      # Tabby 자동완성 서버
+      TABBY_ENDPOINT: ${TABBY_ENDPOINT:-http://cursor-poc-tabby:8080}
+      VLLM_ENDPOINT: ${VLLM_ENDPOINT:-http://cursor-poc-vllm:8000/v1}
+      # RAG / 벡터 DB 설정
+      QDRANT_HOST: cursor-poc-qdrant
+      QDRANT_PORT: 6333
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-base-en-v1.5}
+      USE_LOCAL_EMBEDDING: ${USE_LOCAL_EMBEDDING:-true}
     volumes:
       - ./workspaces:/workspaces
       - ./apps/api/.env:/app/.env:ro
       - ./packages:/packages:ro
+      # Docker 소켓 마운트 (IDE 컨테이너 관리용)
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
@@ -144,6 +162,100 @@ services:
       retries: 5
       start_period: 300s
 
+  # ============================================================
+  # 커스텀 code-server 이미지 빌더
+  # Tabby + Continue 확장 사전 설치
+  # ============================================================
+  code-server-builder:
+    build:
+      context: ./docker/code-server
+      dockerfile: Dockerfile
+    image: cursor-poc-code-server:latest
+    container_name: cursor-poc-code-server-builder
+    command: ["echo", "Image built successfully"]
+    profiles:
+      - build
+
+  # ============================================================
+  # Tabby (AI 코드 자동완성 서버)
+  # Copilot 스타일 인라인 코드 완성
+  # ============================================================
+  tabby:
+    image: tabbyml/tabby:latest
+    container_name: cursor-poc-tabby
+    command: serve --model ${TABBY_MODEL:-StarCoder2-3B} --device ${TABBY_DEVICE:-cuda}
+    environment:
+      TABBY_DISABLE_USAGE_COLLECTION: "1"
+    volumes:
+      - tabby_data:/data
+    ports:
+      - "${TABBY_PORT:-8082}:8080"
+    networks:
+      - cursor-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    profiles:
+      - gpu
+
+  # ============================================================
+  # Qdrant (벡터 데이터베이스 - 코드 RAG용)
+  # 코드 임베딩 저장 및 유사도 검색
+  # ============================================================
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: cursor-poc-qdrant
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    networks:
+      - cursor-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Tabby (CPU 버전 - GPU 없는 환경용)
+  tabby-cpu:
+    image: tabbyml/tabby:latest
+    container_name: cursor-poc-tabby-cpu
+    command: serve --model ${TABBY_MODEL:-StarCoder2-3B} --device cpu
+    environment:
+      TABBY_DISABLE_USAGE_COLLECTION: "1"
+    volumes:
+      - tabby_data:/data
+    ports:
+      - "${TABBY_PORT:-8082}:8080"
+    networks:
+      - cursor-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+    profiles:
+      - cpu
+
   # Prometheus (Monitoring)
   prometheus:
     image: prom/prometheus:latest
@@ -215,6 +327,8 @@ volumes:
   grafana_data:
   portainer_data:
   vllm_cache:
+  tabby_data:
+  qdrant_data:
 
 networks:
   cursor-network:

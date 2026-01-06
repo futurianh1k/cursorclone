@@ -1,0 +1,13 @@
+{
+  "server": {
+    "endpoint": "http://cursor-poc-tabby:8080"
+  },
+  "completion": {
+    "enabled": true,
+    "trigger_mode": "auto",
+    "debounce_ms": 150
+  },
+  "telemetry": {
+    "enabled": false
+  }
+}

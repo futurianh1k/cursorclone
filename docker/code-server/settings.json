@@ -1,101 +1,50 @@
 {
-  "// VDE Web IDE - VS Code 설정": "",
-  "// 출처: docs/claudeaivdedev/scaffold/configs/code-server/settings.json": "",
-
-  "// -----------------------------------------": "",
-  "// 자동 저장 (세션 손실 방지)": "",
-  "// -----------------------------------------": "",
-  "files.autoSave": "afterDelay",
-  "files.autoSaveDelay": 60000,
-
-  "// -----------------------------------------": "",
-  "// 성능 최적화": "",
-  "// -----------------------------------------": "",
-  "files.watcherExclude": {
-    "**/node_modules/**": true,
-    "**/.git/objects/**": true,
-    "**/.git/subtree-cache/**": true,
-    "**/dist/**": true,
-    "**/build/**": true,
-    "**/.next/**": true,
-    "**/coverage/**": true,
-    "**/__pycache__/**": true,
-    "**/.pytest_cache/**": true,
-    "**/venv/**": true,
-    "**/.venv/**": true
-  },
-  "search.exclude": {
-    "**/node_modules": true,
-    "**/dist": true,
-    "**/build": true,
-    "**/coverage": true,
-    "**/.git": true,
-    "**/__pycache__": true
-  },
-  "files.exclude": {
-    "**/.git": true,
-    "**/.DS_Store": true,
-    "**/Thumbs.db": true
-  },
-
-  "// -----------------------------------------": "",
-  "// 보안 설정": "",
-  "// -----------------------------------------": "",
-  "telemetry.telemetryLevel": "off",
-  "update.mode": "none",
-  "extensions.autoUpdate": false,
-  "extensions.autoCheckUpdates": false,
-  "workbench.enableExperiments": false,
-  "workbench.settings.enableNaturalLanguageSearch": false,
-
-  "// -----------------------------------------": "",
+  "// Cursor On-Prem 기본 설정": "",
+  
   "// 에디터 설정": "",
-  "// -----------------------------------------": "",
   "editor.fontSize": 14,
+  "editor.fontFamily": "'Fira Code', 'Droid Sans Mono', 'monospace'",
+  "editor.fontLigatures": true,
   "editor.tabSize": 2,
-  "editor.insertSpaces": true,
   "editor.formatOnSave": true,
-  "editor.formatOnPaste": false,
   "editor.minimap.enabled": true,
   "editor.wordWrap": "on",
-  "editor.bracketPairColorization.enabled": true,
-  "editor.guides.bracketPairs": true,
   "editor.suggestSelection": "first",
-  "editor.acceptSuggestionOnCommitCharacter": true,
-  "editor.acceptSuggestionOnEnter": "on",
-
-  "// -----------------------------------------": "",
-  "// 터미널 설정": "",
-  "// -----------------------------------------": "",
-  "terminal.integrated.defaultProfile.linux": "bash",
-  "terminal.integrated.scrollback": 10000,
-  "terminal.integrated.copyOnSelection": true,
-
-  "// -----------------------------------------": "",
+  "editor.inlineSuggest.enabled": true,
+  
+  "// 자동 저장 (작업 손실 방지)": "",
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 30000,
+  
+  "// 테마 및 아이콘": "",
+  "workbench.colorTheme": "Default Dark+",
+  "workbench.iconTheme": "material-icon-theme",
+  
+  "// Tabby 자동완성 설정": "",
+  "tabby.api.endpoint": "${TABBY_API_ENDPOINT}",
+  "tabby.inlineCompletion.triggerMode": "auto",
+  "tabby.usage.anonymousUsageTracking": false,
+  
+  "// Continue AI 설정": "",
+  "continue.enableTabAutocomplete": false,
+  "continue.telemetryEnabled": false,
+  
   "// Git 설정": "",
-  "// -----------------------------------------": "",
   "git.autofetch": true,
   "git.confirmSync": false,
-  "git.enableSmartCommit": true,
-
-  "// -----------------------------------------": "",
-  "// Tabby (자동완성) 설정": "",
-  "// -----------------------------------------": "",
-  "tabby.endpoint": "http://cursor-poc-tabby:8080",
-  "tabby.inlineCompletion.triggerMode": "auto",
-
-  "// -----------------------------------------": "",
-  "// Continue (Chat/Edit) 설정": "",
-  "// -----------------------------------------": "",
-  "continue.telemetryEnabled": false,
-
-  "// -----------------------------------------": "",
+  
+  "// 터미널 설정": "",
+  "terminal.integrated.fontSize": 13,
+  "terminal.integrated.defaultProfile.linux": "bash",
+  
+  "// 파일 탐색기": "",
+  "explorer.confirmDelete": false,
+  "explorer.confirmDragAndDrop": false,
+  
   "// 언어별 설정": "",
-  "// -----------------------------------------": "",
   "[python]": {
-    "editor.tabSize": 4,
-    "editor.formatOnSave": true,
-    "editor.defaultFormatter": "ms-python.black-formatter"
+    "editor.defaultFormatter": "ms-python.python",
+    "editor.tabSize": 4
   },
   "[javascript]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
@@ -105,14 +54,5 @@
   },
   "[json]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
-  },
-  "[yaml]": {
-    "editor.tabSize": 2
-  },
-
-  "// -----------------------------------------": "",
-  "// 테마 및 UI": "",
-  "// -----------------------------------------": "",
-  "workbench.colorTheme": "Default Dark+",
-  "workbench.iconTheme": "material-icon-theme"
+  }
 }
