@@ -47,6 +47,7 @@ export default function DashboardOverview() {
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(new Set());
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingProjectName, setEditingProjectName] = useState<string>("");
+  const [editingProjectDescription, setEditingProjectDescription] = useState<string>("");
   const [projectActionLoading, setProjectActionLoading] = useState<string | null>(null);
   const [projectDeleteConfirm, setProjectDeleteConfirm] = useState<string | null>(null);
 
@@ -358,19 +359,22 @@ export default function DashboardOverview() {
     setExpandedProjectIds(new Set());
   };
 
-  const startEditProject = (projectId: string, currentName: string) => {
+  const startEditProject = (projectId: string, currentName: string, currentDescription?: string | null) => {
     setProjectDeleteConfirm(null);
     setEditingProjectId(projectId);
     setEditingProjectName(currentName);
+    setEditingProjectDescription((currentDescription || "").toString());
   };
 
   const cancelEditProject = () => {
     setEditingProjectId(null);
     setEditingProjectName("");
+    setEditingProjectDescription("");
   };
 
   const saveProjectName = async (projectId: string) => {
     const nextName = editingProjectName.trim();
+    const nextDesc = editingProjectDescription.trim();
     if (!nextName) {
       setError("프로젝트 이름은 비워둘 수 없습니다.");
       return;
@@ -378,9 +382,13 @@ export default function DashboardOverview() {
     setProjectActionLoading(projectId);
     setError(null);
     try {
-      const updated = await updateProject(projectId, nextName);
-      setProjects((prev) => prev.map((p) => (p.projectId === projectId ? { ...p, name: updated.name } : p)));
-      setSuccessMessage("프로젝트 이름이 변경되었습니다");
+      const updated = await updateProject(projectId, { name: nextName, description: nextDesc ? nextDesc : null });
+      setProjects((prev) =>
+        prev.map((p) =>
+          p.projectId === projectId ? { ...p, name: updated.name, description: updated.description ?? null } : p
+        )
+      );
+      setSuccessMessage("프로젝트 정보가 변경되었습니다");
       setTimeout(() => setSuccessMessage(null), 3000);
       cancelEditProject();
     } catch (err) {
@@ -818,6 +826,8 @@ export default function DashboardOverview() {
                 const running = list.filter((w) => getContainerStatus(w.workspaceId) === "running").length;
                 const stopped = list.filter((w) => getContainerStatus(w.workspaceId) === "stopped").length;
                 const manageable = projects.some((p) => p.projectId === projectId);
+                const projectObj = projects.find((p) => p.projectId === projectId);
+                const projectDesc = projectObj?.description || null;
                 const isEditing = editingProjectId === projectId;
                 const isDeleting = projectDeleteConfirm === projectId;
                 const isActionLoading = projectActionLoading === projectId;
@@ -875,6 +885,36 @@ export default function DashboardOverview() {
                             )}
                           </div>
                           <div style={{ fontSize: "12px", color: "#9ca3af" }}>{projectId}</div>
+                          {isEditing ? (
+                            <textarea
+                              value={editingProjectDescription}
+                              onChange={(e) => setEditingProjectDescription(e.target.value)}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                              }}
+                              placeholder="프로젝트 설명(선택)"
+                              style={{
+                                width: "520px",
+                                maxWidth: "70vw",
+                                marginTop: "8px",
+                                padding: "8px",
+                                fontSize: "12px",
+                                lineHeight: "1.4",
+                                border: "1px solid #d1d5da",
+                                borderRadius: "6px",
+                                resize: "vertical",
+                                minHeight: "54px",
+                              }}
+                              aria-label="프로젝트 설명"
+                            />
+                          ) : (
+                            projectDesc && (
+                              <div style={{ marginTop: "8px", fontSize: "12px", color: "#656d76", maxWidth: "70vw" }}>
+                                {projectDesc}
+                              </div>
+                            )
+                          )}
                         </div>
                         <div style={{ display: "flex", gap: "10px", marginLeft: "16px", color: "#656d76", fontSize: "12px" }}>
                           <span>WS {list.length}</span>
@@ -980,7 +1020,7 @@ export default function DashboardOverview() {
                                   onClick={(e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
-                                    startEditProject(projectId, projectName);
+                                    startEditProject(projectId, projectName, projectDesc);
                                   }}
                                   style={{
                                     padding: "8px 12px",

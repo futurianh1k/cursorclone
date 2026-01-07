@@ -112,6 +112,7 @@ class WorkspaceResponse(BaseModel):
 class CreateProjectRequest(BaseModel):
     """프로젝트 생성 요청"""
     name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = Field(default=None, max_length=2000, description="프로젝트 설명(선택)")
     
     @field_validator("name")
     @classmethod
@@ -121,18 +122,30 @@ class CreateProjectRequest(BaseModel):
 
 class UpdateProjectRequest(BaseModel):
     """프로젝트 수정 요청"""
-    name: str = Field(..., min_length=1, max_length=255)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    description: Optional[str] = Field(default=None, max_length=2000, description="프로젝트 설명(선택)")
 
     @field_validator("name")
     @classmethod
-    def validate_project_name(cls, v: str) -> str:
+    def validate_project_name(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
         return v.strip()
+
+    @field_validator("description")
+    @classmethod
+    def validate_project_description(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        vv = v.strip()
+        return vv if vv else None
 
 
 class ProjectResponse(BaseModel):
     """프로젝트 응답"""
     project_id: str = Field(..., alias="projectId")
     name: str
+    description: Optional[str] = None
     owner_id: str = Field(..., alias="ownerId")
     org_id: Optional[str] = Field(default=None, alias="orgId")
     

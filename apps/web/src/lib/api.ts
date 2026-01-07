@@ -29,6 +29,7 @@ function getAuthHeaders(): Record<string, string> {
 export interface Project {
   projectId: string;
   name: string;
+  description?: string | null;
   ownerId: string;
   orgId?: string | null;
 }
@@ -43,11 +44,11 @@ export async function listProjects(): Promise<Project[]> {
   return response.json();
 }
 
-export async function createProject(name: string): Promise<Project> {
+export async function createProject(name: string, description?: string): Promise<Project> {
   const response = await fetch(`${API_BASE_URL}/api/projects`, {
     method: "POST",
     headers: getAuthHeaders(),
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, description }),
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: response.statusText }));
@@ -67,11 +68,11 @@ export async function getProject(projectId: string): Promise<Project> {
   return response.json();
 }
 
-export async function updateProject(projectId: string, name: string): Promise<Project> {
+export async function updateProject(projectId: string, payload: { name?: string; description?: string | null }): Promise<Project> {
   const response = await fetch(`${API_BASE_URL}/api/projects/${encodeURIComponent(projectId)}`, {
     method: "PATCH",
     headers: getAuthHeaders(),
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(payload),
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: response.statusText }));

@@ -75,6 +75,7 @@ class ProjectModel(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id = Column(String(100), unique=True, nullable=False, index=True)
     name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
 
     owner_id = Column(String(100), ForeignKey("users.user_id"), nullable=False, index=True)
     org_id = Column(String(100), ForeignKey("organizations.org_id"), nullable=True, index=True)

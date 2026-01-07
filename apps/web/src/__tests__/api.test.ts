@@ -109,7 +109,7 @@ describe('API Client', () => {
       })
 
       const { updateProject } = await import('../lib/api')
-      const result = await updateProject('prj_1', 'NewName')
+      const result = await updateProject('prj_1', { name: 'NewName', description: 'Desc' })
 
       expect(result).toEqual(mockProject)
       expect(global.fetch).toHaveBeenCalledWith(
