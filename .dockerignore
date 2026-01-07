@@ -10,11 +10,15 @@ LICENSE
 
 # Node
 node_modules
+**/node_modules
+apps/web/node_modules
 npm-debug.log
 # pnpm-lock.yaml is needed for builds
 .next
 out
 dist
+**/.next
+apps/web/.next
 
 # Python
 __pycache__
