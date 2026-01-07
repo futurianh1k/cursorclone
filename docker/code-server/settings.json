@@ -21,7 +21,7 @@
   "workbench.iconTheme": "material-icon-theme",
   
   "// Tabby 자동완성 설정": "",
-  "tabby.api.endpoint": "http://cursor-poc-tabby:8080",
+  "tabby.api.endpoint": "http://cursor-poc-gateway:8081",
   "tabby.api.authToken": "",
   "tabby.inlineCompletion.triggerMode": "auto",
   "tabby.usage.anonymousUsageTracking": false,

@@ -13,6 +13,7 @@ import logging
 import asyncio
 from typing import Optional, Tuple
 from datetime import datetime, timezone
+import json
 
 # Docker SDK
 try:
@@ -86,6 +87,9 @@ class IDEService:
         self,
         workspace_id: str,
         user_id: str,
+        project_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        role: str = "developer",
         memory_limit: str = "2g",
         cpu_limit: str = "2",
     ) -> Tuple[bool, str, Optional[str], Optional[int]]:
@@ -129,7 +133,7 @@ class IDEService:
         
         # 비동기 컨테이너 생성
         asyncio.create_task(self._create_container_async(
-            container_id, workspace_id, port, memory_limit, cpu_limit
+            container_id, workspace_id, project_id, user_id, tenant_id, role, port, memory_limit, cpu_limit
         ))
         
         return True, f"IDE 컨테이너 생성 시작: {container_id}", f"{IDE_BASE_URL}:{port}", port
@@ -138,6 +142,10 @@ class IDEService:
         self,
         container_id: str,
         workspace_id: str,
+        project_id: Optional[str],
+        user_id: str,
+        tenant_id: Optional[str],
+        role: str,
         port: int,
         memory_limit: str,
         cpu_limit: str,
@@ -152,6 +160,82 @@ class IDEService:
                     os.getenv("HOST_WORKSPACE_PATH", "/home/ubuntu/projects/cursor-onprem-poc/workspaces"),
                     workspace_id
                 )
+
+                # ------------------------------------------------------------
+                # newarchitecture: code-server(Continue/Tabby)가 Gateway를 사용하도록
+                # 워크스페이스별 설정 파일을 생성/마운트 (토큰 포함)
+                # ------------------------------------------------------------
+                ide_config_dir = os.path.join(host_workspace_path, ".cursor-poc", "ide-config")
+                os.makedirs(ide_config_dir, exist_ok=True)
+
+                gateway_base = os.getenv("GATEWAY_BASE_URL", "http://cursor-poc-gateway:8081")
+                # Gateway 토큰 발급 (RS256, JWKS로 검증)
+                # pid/wid 분리: project_id가 없으면 legacy로 workspace_id를 pid로 사용
+                try:
+                    from .auth_service import jwt_auth_service
+                    gw_token = jwt_auth_service.create_gateway_workspace_token(
+                        user_id=user_id,
+                        tenant_id=tenant_id or "org_default",
+                        project_id=project_id or workspace_id,
+                        workspace_id=workspace_id,
+                        role=role,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to issue gateway token for workspace {workspace_id}: {e}")
+                    gw_token = ""
+
+                # code-server settings.json (Tabby extension)
+                ide_settings_path = os.path.join(ide_config_dir, "settings.json")
+                settings_payload = {
+                    "tabby.api.endpoint": gateway_base,
+                    "tabby.api.authToken": gw_token,
+                    "tabby.inlineCompletion.triggerMode": "auto",
+                    "tabby.usage.anonymousUsageTracking": False,
+                }
+                ide_settings_path_tmp = ide_settings_path + ".tmp"
+                with open(ide_settings_path_tmp, "w", encoding="utf-8") as f:
+                    json.dump(settings_payload, f, ensure_ascii=False, indent=2)
+                os.replace(ide_settings_path_tmp, ide_settings_path)
+
+                # tabby client settings.json
+                tabby_settings_path = os.path.join(ide_config_dir, "tabby-settings.json")
+                tabby_payload = {
+                    "server": {"endpoint": gateway_base},
+                    "completion": {"enabled": True, "trigger_mode": "auto", "debounce_ms": 150},
+                    "telemetry": {"enabled": False},
+                }
+                tabby_settings_path_tmp = tabby_settings_path + ".tmp"
+                with open(tabby_settings_path_tmp, "w", encoding="utf-8") as f:
+                    json.dump(tabby_payload, f, ensure_ascii=False, indent=2)
+                os.replace(tabby_settings_path_tmp, tabby_settings_path)
+
+                # Continue config.json (OpenAI 호환 엔드포인트)
+                continue_config_path = os.path.join(ide_config_dir, "continue-config.json")
+                continue_payload = {
+                    "$schema": "https://raw.githubusercontent.com/continuedev/continue/main/extensions/vscode/config_schema.json",
+                    "models": [
+                        {
+                            "title": "Gateway Chat",
+                            "provider": "openai",
+                            "model": os.getenv("VLLM_MODEL", "Qwen/Qwen2.5-Coder-7B-Instruct"),
+                            "apiBase": f"{gateway_base}/v1",
+                            "apiKey": gw_token,
+                            "contextLength": 4096,
+                        }
+                    ],
+                    "tabAutocompleteModel": {
+                        "title": "Gateway Autocomplete",
+                        "provider": "openai",
+                        "model": os.getenv("TABBY_MODEL", "StarCoder2-3B"),
+                        "apiBase": f"{gateway_base}/v1",
+                        "apiKey": gw_token,
+                    },
+                    "allowAnonymousTelemetry": False,
+                }
+                continue_config_path_tmp = continue_config_path + ".tmp"
+                with open(continue_config_path_tmp, "w", encoding="utf-8") as f:
+                    json.dump(continue_payload, f, ensure_ascii=False, indent=2)
+                os.replace(continue_config_path_tmp, continue_config_path)
                 
                 # 이미지 확인/풀
                 try:
@@ -163,8 +247,9 @@ class IDEService:
                 # code-server 컨테이너 생성
                 # --auth none 으로 비밀번호 없이 접근 가능하도록 설정
                 # Tabby 및 vLLM 서버 주소 환경변수로 전달
-                tabby_endpoint = os.getenv("TABBY_ENDPOINT", "http://cursor-poc-tabby:8080")
-                vllm_endpoint = os.getenv("VLLM_ENDPOINT", "http://cursor-poc-vllm:8000/v1")
+                # newarchitecture: 모든 AI 요청은 gateway 경유
+                tabby_endpoint = os.getenv("TABBY_ENDPOINT", "http://cursor-poc-gateway:8081")
+                vllm_endpoint = os.getenv("VLLM_ENDPOINT", "http://cursor-poc-gateway:8081/v1")
                 
                 container = self.client.containers.run(
                     IDE_CONTAINER_IMAGE,
@@ -173,7 +258,10 @@ class IDEService:
                     name=container_id,
                     ports={"8080/tcp": port},
                     volumes={
-                        host_workspace_path: {"bind": "/home/coder/project", "mode": "rw"}
+                        host_workspace_path: {"bind": "/home/coder/project", "mode": "rw"},
+                        ide_settings_path: {"bind": "/home/coder/.local/share/code-server/User/settings.json", "mode": "ro"},
+                        tabby_settings_path: {"bind": "/home/coder/.config/tabby/settings.json", "mode": "ro"},
+                        continue_config_path: {"bind": "/home/coder/.continue/config.json", "mode": "ro"},
                     },
                     environment={
                         "WORKSPACE_ID": workspace_id,

@@ -11,6 +11,7 @@ from datetime import datetime
 
 from ..db.models import (
     WorkspaceModel,
+    ProjectModel,
     UserModel,
     OrganizationModel,
     WorkspaceResourceModel,
@@ -28,11 +29,15 @@ class WorkspaceService:
         self,
         name: str,
         owner_id: str,
+        project_id: str,
         org_id: Optional[str] = None,
         root_path: Optional[str] = None,
     ) -> WorkspaceModel:
         """워크스페이스 생성"""
-        workspace_id = f"ws_{name}"
+        # 동일 project 내에서 같은 name도 가능하도록 workspace_id는 전역 유니크
+        import secrets
+        suffix = secrets.token_urlsafe(4).replace("-", "").replace("_", "")
+        workspace_id = f"ws_{name}_{suffix}"
         
         # 중복 확인
         existing = await self.db.execute(
@@ -44,6 +49,7 @@ class WorkspaceService:
         # 워크스페이스 생성
         workspace = WorkspaceModel(
             workspace_id=workspace_id,
+            project_id=project_id,
             name=name,
             owner_id=owner_id,
             org_id=org_id,

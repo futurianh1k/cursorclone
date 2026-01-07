@@ -29,6 +29,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # 소스 코드 복사
 COPY src /app/src
+COPY alembic.ini /app/alembic.ini
+COPY migrations /app/migrations
 
 # 비root 사용자 생성
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app

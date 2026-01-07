@@ -1,0 +1,15 @@
+version: "dlp-0.3"
+rules:
+  - id: "aws_access_key"
+    kind: "regex"
+    pattern: "AKIA[0-9A-Z]{16}"
+    action: "block"
+  - id: "private_key_block"
+    kind: "regex"
+    pattern: "-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----"
+    action: "block"
+  - id: "bearer_token"
+    kind: "regex"
+    pattern: "(?i)Bearer\\s+[A-Za-z0-9\\-\\._~\\+/]+=*"
+    action: "block"
+

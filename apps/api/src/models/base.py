@@ -78,6 +78,8 @@ class CreateWorkspaceRequest(BaseModel):
     """워크스페이스 생성 요청"""
     name: str = Field(..., min_length=1, max_length=100)
     language: Optional[str] = Field(default="python", max_length=50)
+    project_id: Optional[str] = Field(default=None, alias="projectId", max_length=100, description="기존 프로젝트에 워크스페이스를 추가할 때 사용")
+    project_name: Optional[str] = Field(default=None, alias="projectName", max_length=255, description="projectId가 없을 때 새 프로젝트 생성용 이름(선택)")
     
     @field_validator("name")
     @classmethod
@@ -86,13 +88,53 @@ class CreateWorkspaceRequest(BaseModel):
         if not re.match(r"^[a-zA-Z0-9_-]+$", v):
             raise ValueError("Name must contain only alphanumeric characters, hyphens, and underscores")
         return v
+    
+    @field_validator("project_id")
+    @classmethod
+    def validate_project_id(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        if not re.match(r"^[a-zA-Z0-9_-]+$", v):
+            raise ValueError("projectId must contain only alphanumeric characters, hyphens, and underscores")
+        return v
 
 
 class WorkspaceResponse(BaseModel):
     """워크스페이스 응답"""
     workspace_id: str = Field(..., alias="workspaceId")
+    project_id: Optional[str] = Field(default=None, alias="projectId")
     name: str
     root_path: str = Field(..., alias="rootPath")
+    
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+
+class CreateProjectRequest(BaseModel):
+    """프로젝트 생성 요청"""
+    name: str = Field(..., min_length=1, max_length=255)
+    
+    @field_validator("name")
+    @classmethod
+    def validate_project_name(cls, v: str) -> str:
+        return v.strip()
+
+
+class UpdateProjectRequest(BaseModel):
+    """프로젝트 수정 요청"""
+    name: str = Field(..., min_length=1, max_length=255)
+
+    @field_validator("name")
+    @classmethod
+    def validate_project_name(cls, v: str) -> str:
+        return v.strip()
+
+
+class ProjectResponse(BaseModel):
+    """프로젝트 응답"""
+    project_id: str = Field(..., alias="projectId")
+    name: str
+    owner_id: str = Field(..., alias="ownerId")
+    org_id: Optional[str] = Field(default=None, alias="orgId")
     
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
@@ -107,6 +149,8 @@ class CloneGitHubRequest(BaseModel):
     repository_url: str = Field(..., alias="repositoryUrl", min_length=1)
     name: Optional[str] = Field(default=None, max_length=100)
     branch: Optional[str] = Field(default=None, max_length=100)
+    project_id: Optional[str] = Field(default=None, alias="projectId", max_length=100, description="기존 프로젝트에 워크스페이스를 추가할 때 사용")
+    project_name: Optional[str] = Field(default=None, alias="projectName", max_length=255, description="projectId가 없을 때 새 프로젝트 생성용 이름(선택)")
     
     @field_validator("repository_url")
     @classmethod

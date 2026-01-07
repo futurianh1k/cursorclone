@@ -1,6 +1,6 @@
 {
   "server": {
-    "endpoint": "http://cursor-poc-tabby:8080"
+    "endpoint": "http://cursor-poc-gateway:8081"
   },
   "completion": {
     "enabled": true,

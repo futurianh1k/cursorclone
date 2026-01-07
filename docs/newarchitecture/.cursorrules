@@ -1,0 +1,7 @@
+# Cursor Rules — v0.3 (Ops-ready)
+- 외부 인터넷 의존성 추가 금지
+- Workspace 토큰을 upstream에 전달 금지(Upstream auth 분리)
+- JWKS 캐시/리프레시/Fail-open 정책은 문서/설정과 일치해야 함
+- 스트리밍 DLP 모드(pre_only vs pre_and_incremental) 설명/코드/설정 일치 필수
+- 감사 DB는 파티셔닝 + retention 설계를 유지
+- OpenAPI 스펙은 scripts로 생성/고정하고 verify를 CI에 포함

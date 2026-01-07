@@ -10,6 +10,7 @@ Workspaces 라우터
 import os
 import subprocess
 import re
+import secrets
 import logging
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, status, Depends, Query, BackgroundTasks
@@ -24,6 +25,7 @@ from ..models import (
 )
 from ..db import WorkspaceModel
 from ..db import UserModel
+from ..db.models import ProjectModel
 from ..utils.filesystem import (
     get_workspace_root,
     create_workspace_directory,
@@ -68,7 +70,9 @@ async def create_workspace(
     
     인증 필수: JWT 토큰, 권한: workspace:create
     """
-    workspace_id = f"ws_{request.name}"
+    # workspace_id는 전역 유니크 (project 하위에서도 중복 가능해야 하므로 suffix 부여)
+    suffix = secrets.token_urlsafe(4).replace("-", "").replace("_", "")
+    workspace_id = f"ws_{request.name}_{suffix}"
     workspace_root = get_workspace_root(workspace_id)
     
     # 워크스페이스 존재 여부 확인 (디렉토리)
@@ -98,10 +102,40 @@ async def create_workspace(
             detail={"error": "Failed to create workspace", "code": "WS_CREATE_FAILED"},
         )
     
+    # project 선택 또는 자동 생성
+    project_id: Optional[str] = None
+    if request.project_id:
+        existing_project = await db.execute(
+            select(ProjectModel).where(
+                ProjectModel.project_id == request.project_id,
+                ProjectModel.owner_id == current_user.user_id,
+            )
+        )
+        p = existing_project.scalar_one_or_none()
+        if not p:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": "Project not found", "code": "PROJECT_NOT_FOUND"},
+            )
+        project_id = p.project_id
+    else:
+        # 새 프로젝트 자동 생성 (요청에 projectName이 있으면 사용)
+        project_name = request.project_name or f"{request.name}"
+        project_id = f"prj_{request.name}_{suffix}"
+        project = ProjectModel(
+            project_id=project_id,
+            name=project_name,
+            owner_id=current_user.user_id,
+            org_id=current_user.org_id,
+        )
+        db.add(project)
+        await db.flush()
+
     # DB에 메타데이터 저장
     try:
         workspace_model = WorkspaceModel(
             workspace_id=workspace_id,
+            project_id=project_id,
             name=request.name,
             owner_id=current_user.user_id,
             org_id=current_user.org_id,
@@ -121,13 +155,17 @@ async def create_workspace(
     background_tasks.add_task(
         _provision_ide_container,
         workspace_id,
+        project_id,
         current_user.user_id,
+        current_user.org_id,
+        current_user.role,
         db,
     )
     logger.info(f"IDE container provisioning started for workspace: {workspace_id}")
     
     return WorkspaceResponse(
         workspaceId=workspace_id,
+        projectId=project_id,
         name=request.name,
         rootPath=str(workspace_root),
     )
@@ -135,7 +173,10 @@ async def create_workspace(
 
 async def _provision_ide_container(
     workspace_id: str,
+    project_id: str,
     user_id: str,
+    tenant_id: str,
+    role: str,
     db: AsyncSession,
 ):
     """
@@ -148,6 +189,9 @@ async def _provision_ide_container(
         success, message, ide_url, port = await ide_service.create_ide_container(
             workspace_id=workspace_id,
             user_id=user_id,
+            project_id=project_id,
+            tenant_id=tenant_id,
+            role=role,
         )
         
         if success:
@@ -222,6 +266,7 @@ async def list_workspaces(
         workspaces.append(
             WorkspaceResponse(
                 workspaceId=ws.workspace_id,
+                projectId=ws.project_id,
                 name=ws.name,
                 rootPath=ws.root_path,
             )
@@ -238,6 +283,7 @@ async def list_workspaces(
                     workspaces.append(
                         WorkspaceResponse(
                             workspaceId=workspace_id,
+                            projectId=None,
                             name=workspace_name,
                             rootPath=str(entry),
                         )
@@ -286,7 +332,8 @@ async def clone_github_repository(
             )
         workspace_name = match.group(1)
     
-    workspace_id = f"ws_{workspace_name}"
+    suffix = secrets.token_urlsafe(4).replace("-", "").replace("_", "")
+    workspace_id = f"ws_{workspace_name}_{suffix}"
     workspace_root = get_workspace_root(workspace_id)
     
     # 워크스페이스 존재 여부 확인
@@ -357,8 +404,37 @@ async def clone_github_repository(
     
     # DB에 메타데이터 저장
     try:
+        # project 선택 또는 자동 생성 (create_workspace와 동일 정책)
+        project_id: Optional[str] = None
+        if request.project_id:
+            existing_project = await db.execute(
+                select(ProjectModel).where(
+                    ProjectModel.project_id == request.project_id,
+                    ProjectModel.owner_id == current_user.user_id,
+                )
+            )
+            p = existing_project.scalar_one_or_none()
+            if not p:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail={"error": "Project not found", "code": "PROJECT_NOT_FOUND"},
+                )
+            project_id = p.project_id
+        else:
+            project_name = request.project_name or workspace_name
+            project_id = f"prj_{workspace_name}_{suffix}"
+            project = ProjectModel(
+                project_id=project_id,
+                name=project_name,
+                owner_id=current_user.user_id,
+                org_id=current_user.org_id,
+            )
+            db.add(project)
+            await db.flush()
+
         workspace_model = WorkspaceModel(
             workspace_id=workspace_id,
+            project_id=project_id,
             name=workspace_name,
             owner_id=current_user.user_id,
             org_id=current_user.org_id,
@@ -375,6 +451,7 @@ async def clone_github_repository(
     
     return WorkspaceResponse(
         workspaceId=workspace_id,
+        projectId=project_id,
         name=workspace_name,
         rootPath=str(workspace_root),
     )

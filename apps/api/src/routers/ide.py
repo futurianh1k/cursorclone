@@ -14,6 +14,8 @@ import uuid
 import logging
 from datetime import datetime, timezone
 import asyncio
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 # Docker SDK (설치 필요: pip install docker)
 try:
@@ -35,6 +37,8 @@ from ..models.ide import (
     IDEHealthResponse,
 )
 from ..db import UserModel
+from ..db.connection import get_db
+from ..db.models import WorkspaceModel
 from ..services.rbac_service import get_current_user_optional, get_current_user
 
 router = APIRouter(prefix="/api/ide", tags=["IDE"])
@@ -603,6 +607,7 @@ async def get_ide_health():
 async def get_workspace_ide_url(
     workspace_id: str,
     current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     워크스페이스의 IDE URL 조회 (또는 생성)
@@ -645,9 +650,20 @@ async def get_workspace_ide_url(
         }
     
     # 3. 컨테이너가 없으면 새로 생성
+    # DB에서 workspace를 조회하여 project_id(pid)를 함께 전달
+    workspace = await db.execute(
+        select(WorkspaceModel).where(
+            WorkspaceModel.workspace_id == workspace_id,
+            WorkspaceModel.owner_id == current_user.user_id,
+        )
+    )
+    workspace = workspace.scalar_one_or_none()
     success, message, ide_url, port = await ide_service.create_ide_container(
         workspace_id=workspace_id,
         user_id=user_id,
+        project_id=workspace.project_id if workspace else None,
+        tenant_id=current_user.org_id,
+        role=current_user.role,
     )
     
     if success and ide_url:

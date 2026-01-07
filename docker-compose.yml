@@ -98,6 +98,55 @@ services:
       - cursor-network
     restart: unless-stopped
 
+  # ============================================================
+  # AI Gateway (FastAPI) — v0.3
+  # - 모든 AI 요청은 Gateway를 경유 (PRD DoD)
+  # - Upstream auth 분리 (workspace 토큰 전달 금지)
+  # ============================================================
+  gateway:
+    # 외부 인터넷 의존성 추가를 피하기 위해, 이미 빌드된 api 이미지(runtime deps 포함)를 재사용
+    image: cursor-onprem-poc-api
+    container_name: cursor-poc-gateway
+    working_dir: /app/gateway
+    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8081"]
+    environment:
+      # newarchitecture: 운영 형태(JWKS 기반). 개발에서 dev 토큰을 쓰려면 true로 설정.
+      JWT_DEV_MODE: ${JWT_DEV_MODE:-false}
+      JWT_JWKS_URL: ${JWT_JWKS_URL:-http://cursor-poc-api:8000/api/auth/jwks}
+      JWT_JWKS_CACHE_TTL_SECONDS: ${JWT_JWKS_CACHE_TTL_SECONDS:-300}
+      JWT_JWKS_REFRESH_SECONDS: ${JWT_JWKS_REFRESH_SECONDS:-60}
+      JWT_JWKS_FAIL_OPEN: ${JWT_JWKS_FAIL_OPEN:-false}
+      # Upstreams
+      UPSTREAM_TABBY: ${UPSTREAM_TABBY:-http://cursor-poc-tabby:8080}
+      UPSTREAM_CHAT: ${UPSTREAM_CHAT:-http://cursor-poc-vllm:8000}
+      UPSTREAM_AGENT: ${UPSTREAM_AGENT:-http://cursor-poc-api:8000}
+      UPSTREAM_RAG: ${UPSTREAM_RAG:-http://cursor-poc-api:8000}
+      # Upstream auth separation
+      UPSTREAM_AUTH_MODE: ${UPSTREAM_AUTH_MODE:-none}
+      # Audit DB (partitioned audit_events)
+      AUDIT_DB_DSN: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-cursor_poc}
+      AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-365}
+      # DLP
+      DLP_STREAM_MODE: ${DLP_STREAM_MODE:-pre_only}
+    volumes:
+      - ./apps/gateway:/app/gateway:ro
+    ports:
+      - "${GATEWAY_PORT:-8081}:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/healthz')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - cursor-network
+    restart: unless-stopped
+
   # Web Frontend
   web:
     build:
@@ -106,6 +155,7 @@ services:
     container_name: cursor-poc-web
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NEXT_PUBLIC_GATEWAY_URL: ${NEXT_PUBLIC_GATEWAY_URL:-http://localhost:8081}
       NODE_ENV: ${NODE_ENV:-production}
     ports:
       - "${WEB_PORT:-3000}:3000"

@@ -61,8 +61,8 @@ COPY --chown=coder:coder continue/config.json /home/coder/.continue/config.json
 # ============================================================
 # 환경변수
 # ============================================================
-ENV TABBY_API_ENDPOINT=http://cursor-poc-tabby:8080
-ENV VLLM_API_ENDPOINT=http://cursor-poc-vllm:8000/v1
+ENV TABBY_API_ENDPOINT=http://cursor-poc-gateway:8081
+ENV VLLM_API_ENDPOINT=http://cursor-poc-gateway:8081/v1
 
 # 포트 노출
 EXPOSE 8080

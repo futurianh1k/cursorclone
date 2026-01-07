@@ -10,8 +10,6 @@ Task B: API 명세 반영
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
 import os
 import logging
 from pathlib import Path
@@ -37,6 +35,7 @@ load_dotenv(dotenv_path=env_path)
 from .routers import (
     auth_router,
     workspaces_router,
+    projects_router,
     files_router,
     ai_router,
     patch_router,
@@ -81,11 +80,11 @@ app = FastAPI(
 # ============================================================
 
 # Rate Limiter 설정
-from .middleware.rate_limiter import limiter
+from .middleware.rate_limiter import limiter, RateLimitExceeded, rate_limit_exceeded_handler
 from .middleware.security_headers import SecurityHeadersMiddleware
 
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 # ============================================================
 # CORS 설정 (보안 헤더 미들웨어보다 먼저 실행되어야 함)
@@ -339,6 +338,7 @@ def debug_env():
 # API 라우터 등록
 app.include_router(auth_router)
 app.include_router(workspaces_router)
+app.include_router(projects_router)
 app.include_router(files_router)
 app.include_router(ai_router)
 app.include_router(patch_router)

@@ -49,6 +49,7 @@ describe('API Client', () => {
     it('새 워크스페이스를 생성한다', async () => {
       const mockWorkspace = {
         workspaceId: 'ws-new',
+        projectId: 'prj-1',
         name: 'New Workspace',
         rootPath: '/new'
       }
@@ -70,6 +71,65 @@ describe('API Client', () => {
             'Content-Type': 'application/json',
           }),
         })
+      )
+    })
+
+    it('projectId/projectName을 포함해 워크스페이스를 생성한다', async () => {
+      const mockWorkspace = {
+        workspaceId: 'ws-new',
+        projectId: 'prj-1',
+        name: 'New Workspace',
+        rootPath: '/new'
+      }
+
+      ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockWorkspace,
+      })
+
+      const { createWorkspace } = await import('../lib/api')
+      await createWorkspace('New Workspace', { projectId: 'prj-1', projectName: 'My Project', language: 'python' })
+
+      const callArgs = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+      const init = callArgs[1]
+      expect(init.method).toBe('POST')
+      const body = JSON.parse(init.body)
+      expect(body.projectId).toBe('prj-1')
+      expect(body.projectName).toBe('My Project')
+    })
+  })
+
+  describe('Projects API', () => {
+    it('updateProject > 프로젝트 이름을 수정한다', async () => {
+      const mockProject = { projectId: 'prj_1', name: 'NewName', ownerId: 'u1', orgId: 'o1' }
+
+      ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockProject,
+      })
+
+      const { updateProject } = await import('../lib/api')
+      const result = await updateProject('prj_1', 'NewName')
+
+      expect(result).toEqual(mockProject)
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/projects/prj_1'),
+        expect.objectContaining({ method: 'PATCH' })
+      )
+    })
+
+    it('deleteProject > 프로젝트를 삭제한다', async () => {
+      ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({}),
+      })
+
+      const { deleteProject } = await import('../lib/api')
+      await expect(deleteProject('prj_1')).resolves.toBeUndefined()
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/projects/prj_1'),
+        expect.objectContaining({ method: 'DELETE' })
       )
     })
   })

@@ -10,7 +10,6 @@ API 메트릭 수집 및 노출
 
 import os
 import time
-from prometheus_fastapi_instrumentator import Instrumentator, metrics
 from prometheus_client import Counter, Histogram, Gauge, Info
 from fastapi import FastAPI, Request
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -18,6 +17,14 @@ from typing import Callable
 import logging
 
 logger = logging.getLogger(__name__)
+
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator, metrics  # type: ignore
+    _INSTRUMENTATOR_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    # 테스트/제한된 환경에서는 instrumentator 미설치로도 앱이 로드되게 한다.
+    # TODO: 운영 환경에서는 의존성을 강제하고, ENABLE_METRICS 사용 시 설치 여부를 검증할 것.
+    _INSTRUMENTATOR_AVAILABLE = False
 
 # ============================================================
 # 커스텀 메트릭 정의
@@ -84,6 +91,10 @@ def setup_metrics(app: FastAPI):
     
     /metrics 엔드포인트 노출
     """
+    if not _INSTRUMENTATOR_AVAILABLE:
+        logger.warning("prometheus_fastapi_instrumentator 미설치: metrics 설정을 스킵합니다.")
+        return
+
     # 환경 정보 설정
     APP_INFO.info({
         "version": "0.1.0",
