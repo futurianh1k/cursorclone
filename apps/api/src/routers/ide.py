@@ -52,8 +52,8 @@ logger = logging.getLogger(__name__)
 # IDE 컨테이너 기본 설정
 IDE_CONTAINER_IMAGE = os.getenv("IDE_CONTAINER_IMAGE", "cursor-poc-code-server:latest")
 IDE_NETWORK = os.getenv("IDE_NETWORK", "cursor-network")
-IDE_PORT_RANGE_START = int(os.getenv("IDE_PORT_RANGE_START", "9000"))
-IDE_PORT_RANGE_END = int(os.getenv("IDE_PORT_RANGE_END", "9100"))
+IDE_PORT_RANGE_START = int(os.getenv("IDE_PORT_RANGE_START", "9100"))
+IDE_PORT_RANGE_END = int(os.getenv("IDE_PORT_RANGE_END", "9200"))
 IDE_BASE_URL = os.getenv("IDE_BASE_URL", "http://localhost")
 WORKSPACE_BASE_PATH = os.getenv("WORKSPACE_BASE_PATH", "/home/ubuntu/workspaces")
 
@@ -217,16 +217,21 @@ async def create_ide_container(
     user_id = current_user.user_id
     # 컨테이너 이름: ide-{workspace_id} 형식으로 직관적으로 생성
     container_id = f"ide-{request.workspace_id}"
+
+    # 기존 컨테이너 스캔(다른 경로에서 생성된 IDE 컨테이너도 발견 가능)
+    _scan_existing_docker_containers()
     
     # 기존 컨테이너 확인
     existing = next(
         (c for c in _ide_containers.values() 
          if c["workspace_id"] == request.workspace_id 
-         and c["user_id"] == user_id
          and c["status"] not in [IDEContainerStatus.STOPPED, IDEContainerStatus.ERROR]),
         None
     )
     if existing:
+        # 기존 컨테이너는 user_id를 알 수 없을 수 있으므로, 요청자 기준으로 보정
+        if existing.get("user_id") in (None, "", "user-default"):
+            existing["user_id"] = user_id
         logger.info(f"기존 IDE 컨테이너 반환: {existing['container_id']}")
         return IDEContainerResponse(**existing)
     
@@ -280,6 +285,28 @@ async def _create_container_async(
         # Docker 클라이언트
         if DOCKER_AVAILABLE:
             client = docker.from_env()
+
+            # 이미 같은 이름의 컨테이너가 있으면(워크스페이스 생성 시 자동 프로비저닝 등) 재사용
+            try:
+                existing = client.containers.get(container_id)
+                existing.reload()
+                mapped_port = None
+                try:
+                    ports = existing.attrs.get("NetworkSettings", {}).get("Ports", {})
+                    host_bind = ports.get("8080/tcp")
+                    if host_bind and isinstance(host_bind, list) and host_bind:
+                        mapped_port = int(host_bind[0].get("HostPort"))
+                except Exception:
+                    mapped_port = None
+
+                _ide_containers[container_id]["status"] = IDEContainerStatus.RUNNING.value if existing.status == "running" else existing.status
+                _ide_containers[container_id]["port"] = mapped_port or _ide_containers[container_id]["port"]
+                _ide_containers[container_id]["url"] = f"{IDE_BASE_URL}:{_ide_containers[container_id]['port']}"
+                _ide_containers[container_id]["internal_url"] = f"http://{container_id}:8080"
+                logger.info(f"IDE 컨테이너 이미 존재: {container_id} (재사용)")
+                return
+            except Exception:
+                pass
             
             # 워크스페이스 경로
             workspace_path = os.path.join(WORKSPACE_BASE_PATH, workspace_id)

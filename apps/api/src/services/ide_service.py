@@ -185,8 +185,10 @@ class IDEService:
                     logger.error(f"Failed to issue gateway token for workspace {workspace_id}: {e}")
                     gw_token = ""
 
-                # code-server settings.json (Tabby extension)
-                ide_settings_path = os.path.join(ide_config_dir, "settings.json")
+                # code-server settings (dir mount로 타입 불일치 방지)
+                vscode_user_dir = os.path.join(ide_config_dir, "vscode", "User")
+                os.makedirs(vscode_user_dir, exist_ok=True)
+                ide_settings_path = os.path.join(vscode_user_dir, "settings.json")
                 settings_payload = {
                     "tabby.api.endpoint": gateway_base,
                     "tabby.api.authToken": gw_token,
@@ -198,8 +200,10 @@ class IDEService:
                     json.dump(settings_payload, f, ensure_ascii=False, indent=2)
                 os.replace(ide_settings_path_tmp, ide_settings_path)
 
-                # tabby client settings.json
-                tabby_settings_path = os.path.join(ide_config_dir, "tabby-settings.json")
+                # tabby client settings (dir mount)
+                tabby_dir = os.path.join(ide_config_dir, "tabby")
+                os.makedirs(tabby_dir, exist_ok=True)
+                tabby_settings_path = os.path.join(tabby_dir, "settings.json")
                 tabby_payload = {
                     "server": {"endpoint": gateway_base},
                     "completion": {"enabled": True, "trigger_mode": "auto", "debounce_ms": 150},
@@ -210,8 +214,10 @@ class IDEService:
                     json.dump(tabby_payload, f, ensure_ascii=False, indent=2)
                 os.replace(tabby_settings_path_tmp, tabby_settings_path)
 
-                # Continue config.json (OpenAI 호환 엔드포인트)
-                continue_config_path = os.path.join(ide_config_dir, "continue-config.json")
+                # Continue config (dir mount)
+                continue_dir = os.path.join(ide_config_dir, "continue")
+                os.makedirs(continue_dir, exist_ok=True)
+                continue_config_path = os.path.join(continue_dir, "config.json")
                 continue_payload = {
                     "$schema": "https://raw.githubusercontent.com/continuedev/continue/main/extensions/vscode/config_schema.json",
                     "models": [
@@ -266,9 +272,9 @@ class IDEService:
                     ports={"8080/tcp": port},
                     volumes={
                         host_workspace_path: {"bind": "/home/coder/project", "mode": "rw"},
-                        ide_settings_path: {"bind": "/home/coder/.local/share/code-server/User/settings.json", "mode": "ro"},
-                        tabby_settings_path: {"bind": "/home/coder/.config/tabby/settings.json", "mode": "ro"},
-                        continue_config_path: {"bind": "/home/coder/.continue/config.json", "mode": "ro"},
+                        vscode_user_dir: {"bind": "/home/coder/.local/share/code-server/User", "mode": "rw"},
+                        tabby_dir: {"bind": "/home/coder/.config/tabby", "mode": "rw"},
+                        continue_dir: {"bind": "/home/coder/.continue", "mode": "rw"},
                     },
                     environment={
                         "WORKSPACE_ID": workspace_id,
