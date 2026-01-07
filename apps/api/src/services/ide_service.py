@@ -155,17 +155,18 @@ class IDEService:
             _ide_containers[container_id]["status"] = "starting"
             
             if self.client:
-                # 워크스페이스 경로 (호스트 경로)
-                host_workspace_path = os.path.join(
-                    os.getenv("HOST_WORKSPACE_PATH", "/home/ubuntu/projects/cursor-onprem-poc/workspaces"),
-                    workspace_id
-                )
+                # 워크스페이스 경로
+                # - config 파일 생성: api 컨테이너 내부에서 접근 가능한 경로(/workspaces 마운트)
+                # - IDE 컨테이너 마운트: docker host 기준 경로(HOST_WORKSPACE_PATH)
+                host_workspace_root = os.getenv("HOST_WORKSPACE_PATH", "/home/ubuntu/projects/cursor-onprem-poc/workspaces")
+                host_workspace_path = os.path.join(host_workspace_root, workspace_id)
+                container_workspace_path = os.path.join(WORKSPACE_BASE_PATH, workspace_id)
 
                 # ------------------------------------------------------------
                 # newarchitecture: code-server(Continue/Tabby)가 Gateway를 사용하도록
                 # 워크스페이스별 설정 파일을 생성/마운트 (토큰 포함)
                 # ------------------------------------------------------------
-                ide_config_dir = os.path.join(host_workspace_path, ".cursor-poc", "ide-config")
+                ide_config_dir = os.path.join(container_workspace_path, ".cursor-poc", "ide-config")
                 os.makedirs(ide_config_dir, exist_ok=True)
 
                 gateway_base = os.getenv("GATEWAY_BASE_URL", "http://cursor-poc-gateway:8081")
@@ -241,6 +242,12 @@ class IDEService:
                 try:
                     self.client.images.get(IDE_CONTAINER_IMAGE)
                 except ImageNotFound:
+                    # 로컬 태그(cursor-poc-code-server:latest)인 경우 pull이 불가능하므로 명확히 에러 처리
+                    if "/" not in IDE_CONTAINER_IMAGE:
+                        raise RuntimeError(
+                            f"IDE image not found locally: {IDE_CONTAINER_IMAGE}. "
+                            f"Run `docker compose up -d --build code-server-builder` to build it."
+                        )
                     logger.info(f"Pulling IDE image: {IDE_CONTAINER_IMAGE}")
                     self.client.images.pull(IDE_CONTAINER_IMAGE)
                 

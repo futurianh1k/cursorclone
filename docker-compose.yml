@@ -225,8 +225,7 @@ services:
     image: cursor-poc-code-server:latest
     container_name: cursor-poc-code-server-builder
     command: ["echo", "Image built successfully"]
-    profiles:
-      - build
+    restart: "no"
 
   # ============================================================
   # Tabby (AI 코드 자동완성 서버)
