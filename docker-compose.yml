@@ -206,11 +206,13 @@ services:
       - cursor-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      # NOTE: vllm 이미지에는 python이 없을 수 있어 curl로 health 확인
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 60s
       timeout: 30s
       retries: 5
-      start_period: 300s
+      # 모델 초기 다운로드/로딩에 시간이 걸릴 수 있어 start_period를 길게 둔다
+      start_period: 900s
 
   # ============================================================
   # 커스텀 code-server 이미지 빌더
@@ -233,7 +235,8 @@ services:
   tabby:
     image: tabbyml/tabby:latest
     container_name: cursor-poc-tabby
-    command: serve --model ${TABBY_MODEL:-StarCoder2-3B} --device ${TABBY_DEVICE:-cuda} --no-webserver
+    # NOTE: 기본은 cpu로 기동(프로필 미지정 시에도 실행되도록)
+    command: serve --model ${TABBY_MODEL:-StarCoder2-3B} --device ${TABBY_DEVICE:-cpu} --no-webserver
     environment:
       TABBY_DISABLE_USAGE_COLLECTION: "1"
       TABBY_DISABLE_AUTH: "1"
@@ -241,6 +244,30 @@ services:
       - tabby_data:/data
     ports:
       - "${TABBY_PORT:-8082}:8080"
+    networks:
+      - cursor-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # 캐시 초기화 후 모델 준비에 시간이 걸릴 수 있음
+      start_period: 600s
+    # GPU로 띄우려면 docker compose --profile gpu up -d tabby-gpu 를 사용
+
+  # GPU 버전(선택)
+  tabby-gpu:
+    image: tabbyml/tabby:latest
+    container_name: cursor-poc-tabby-gpu
+    command: serve --model ${TABBY_MODEL:-StarCoder2-3B} --device cuda --no-webserver
+    environment:
+      TABBY_DISABLE_USAGE_COLLECTION: "1"
+      TABBY_DISABLE_AUTH: "1"
+    volumes:
+      - tabby_data:/data
+    ports:
+      - "${TABBY_GPU_PORT:-8083}:8080"
     networks:
       - cursor-network
     restart: unless-stopped
@@ -277,36 +304,11 @@ services:
     networks:
       - cursor-network
     restart: unless-stopped
+    # NOTE: qdrant 기본 이미지에는 curl/wget가 없어 healthcheck 오탐(unhealthy)이 발생할 수 있음
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+      disable: true
 
-  # Tabby (CPU 버전 - GPU 없는 환경용)
-  tabby-cpu:
-    image: tabbyml/tabby:latest
-    container_name: cursor-poc-tabby-cpu
-    command: serve --model ${TABBY_MODEL:-StarCoder2-3B} --device cpu --no-webserver
-    environment:
-      TABBY_DISABLE_USAGE_COLLECTION: "1"
-      TABBY_DISABLE_AUTH: "1"
-    volumes:
-      - tabby_data:/data
-    ports:
-      - "${TABBY_PORT:-8082}:8080"
-    networks:
-      - cursor-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 300s
-    profiles:
-      - cpu
+  # (기존 tabby-cpu 서비스는 tabby 기본 서비스로 통합)
 
   # Prometheus (Monitoring)
   prometheus:
@@ -365,12 +367,9 @@ services:
     networks:
       - cursor-network
     restart: unless-stopped
+    # NOTE: portainer 이미지에는 wget/curl/sh 등이 없어 healthcheck 오탐(unhealthy)이 발생할 수 있음
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9000/api/status"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+      disable: true
 
 volumes:
   postgres_data:
