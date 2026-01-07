@@ -21,6 +21,7 @@ import {
 } from "@/lib/api";
 import { getCurrentUser, User } from "@/lib/auth-api";
 import { groupWorkspacesByProject } from "@/lib/projectGrouping";
+import { canDeleteProject } from "@/lib/projectManagement";
 
 // IDE 컨테이너 상태 색상
 const STATUS_COLORS: Record<string, { bg: string; text: string; label: string }> = {
@@ -998,17 +999,20 @@ export default function DashboardOverview() {
                                   onClick={(e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
+                                    if (!canDeleteProject(list.length)) return;
                                     requestDeleteProject(projectId);
                                   }}
+                                  disabled={!canDeleteProject(list.length)}
                                   style={{
                                     padding: "8px 12px",
                                     fontSize: "12px",
                                     fontWeight: 600,
                                     backgroundColor: "transparent",
-                                    color: "#cf222e",
+                                    color: canDeleteProject(list.length) ? "#cf222e" : "#9ca3af",
                                     border: "1px solid #d1d5da",
                                     borderRadius: "6px",
-                                    cursor: "pointer",
+                                    cursor: canDeleteProject(list.length) ? "pointer" : "not-allowed",
+                                    opacity: canDeleteProject(list.length) ? 1 : 0.7,
                                   }}
                                   title={list.length > 0 ? "워크스페이스가 있으면 삭제할 수 없습니다" : "프로젝트 삭제"}
                                 >
