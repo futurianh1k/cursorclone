@@ -166,8 +166,14 @@ class IDEService:
                 # newarchitecture: code-server(Continue/Tabby)가 Gateway를 사용하도록
                 # 워크스페이스별 설정 파일을 생성/마운트 (토큰 포함)
                 # ------------------------------------------------------------
-                ide_config_dir = os.path.join(container_workspace_path, ".cursor-poc", "ide-config")
-                os.makedirs(ide_config_dir, exist_ok=True)
+                # IMPORTANT:
+                # - api 컨테이너 내부에서는 /workspaces/... 로 파일을 생성하면 host bind mount에 기록된다.
+                # - 하지만 docker SDK로 IDE 컨테이너를 생성할 때 "volumes"의 Source는 docker host 기준 경로여야 한다.
+                #   (컨테이너 내부 경로를 넘기면 host에 /workspaces/... 같은 빈 디렉토리가 root로 생성되어 잘못 마운트됨)
+                ide_config_dir_container = os.path.join(container_workspace_path, ".cursor-poc", "ide-config")
+                ide_config_dir_host = os.path.join(host_workspace_path, ".cursor-poc", "ide-config")
+
+                os.makedirs(ide_config_dir_container, exist_ok=True)
 
                 gateway_base = os.getenv("GATEWAY_BASE_URL", "http://cursor-poc-gateway:8081")
                 # Gateway 토큰 발급 (RS256, JWKS로 검증)
@@ -186,9 +192,10 @@ class IDEService:
                     gw_token = ""
 
                 # code-server settings (dir mount로 타입 불일치 방지)
-                vscode_user_dir = os.path.join(ide_config_dir, "vscode", "User")
-                os.makedirs(vscode_user_dir, exist_ok=True)
-                ide_settings_path = os.path.join(vscode_user_dir, "settings.json")
+                vscode_user_dir_container = os.path.join(ide_config_dir_container, "vscode", "User")
+                vscode_user_dir_host = os.path.join(ide_config_dir_host, "vscode", "User")
+                os.makedirs(vscode_user_dir_container, exist_ok=True)
+                ide_settings_path = os.path.join(vscode_user_dir_container, "settings.json")
                 settings_payload = {
                     "tabby.api.endpoint": gateway_base,
                     "tabby.api.authToken": gw_token,
@@ -201,9 +208,10 @@ class IDEService:
                 os.replace(ide_settings_path_tmp, ide_settings_path)
 
                 # tabby client settings (dir mount)
-                tabby_dir = os.path.join(ide_config_dir, "tabby")
-                os.makedirs(tabby_dir, exist_ok=True)
-                tabby_settings_path = os.path.join(tabby_dir, "settings.json")
+                tabby_dir_container = os.path.join(ide_config_dir_container, "tabby")
+                tabby_dir_host = os.path.join(ide_config_dir_host, "tabby")
+                os.makedirs(tabby_dir_container, exist_ok=True)
+                tabby_settings_path = os.path.join(tabby_dir_container, "settings.json")
                 tabby_payload = {
                     "server": {"endpoint": gateway_base},
                     "completion": {"enabled": True, "trigger_mode": "auto", "debounce_ms": 150},
@@ -215,9 +223,10 @@ class IDEService:
                 os.replace(tabby_settings_path_tmp, tabby_settings_path)
 
                 # Continue config (dir mount)
-                continue_dir = os.path.join(ide_config_dir, "continue")
-                os.makedirs(continue_dir, exist_ok=True)
-                continue_config_path = os.path.join(continue_dir, "config.json")
+                continue_dir_container = os.path.join(ide_config_dir_container, "continue")
+                continue_dir_host = os.path.join(ide_config_dir_host, "continue")
+                os.makedirs(continue_dir_container, exist_ok=True)
+                continue_config_path = os.path.join(continue_dir_container, "config.json")
                 continue_payload = {
                     "$schema": "https://raw.githubusercontent.com/continuedev/continue/main/extensions/vscode/config_schema.json",
                     "models": [
@@ -272,9 +281,9 @@ class IDEService:
                     ports={"8080/tcp": port},
                     volumes={
                         host_workspace_path: {"bind": "/home/coder/project", "mode": "rw"},
-                        vscode_user_dir: {"bind": "/home/coder/.local/share/code-server/User", "mode": "rw"},
-                        tabby_dir: {"bind": "/home/coder/.config/tabby", "mode": "rw"},
-                        continue_dir: {"bind": "/home/coder/.continue", "mode": "rw"},
+                        vscode_user_dir_host: {"bind": "/home/coder/.local/share/code-server/User", "mode": "rw"},
+                        tabby_dir_host: {"bind": "/home/coder/.config/tabby", "mode": "rw"},
+                        continue_dir_host: {"bind": "/home/coder/.continue", "mode": "rw"},
                     },
                     environment={
                         "WORKSPACE_ID": workspace_id,
