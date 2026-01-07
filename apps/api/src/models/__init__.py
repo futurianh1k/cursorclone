@@ -13,6 +13,7 @@ from .base import (
     WorkspaceResponse,
     WorkspaceListResponse,
     CreateProjectRequest,
+    UpdateProjectRequest,
     ProjectResponse,
     CloneGitHubRequest,
     FileType,
@@ -119,6 +120,7 @@ __all__ = [
     "WorkspaceResponse",
     "WorkspaceListResponse",
     "CreateProjectRequest",
+    "UpdateProjectRequest",
     "ProjectResponse",
     "CloneGitHubRequest",
     # Files

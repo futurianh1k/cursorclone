@@ -11,9 +11,29 @@ Pydantic Settings를 사용하여 타입 안전성 보장.
 
 import os
 from typing import Optional
-from pydantic_settings import BaseSettings
 from pydantic import Field
 from functools import lru_cache
+
+try:
+    # NOTE: pydantic-settings는 운영/개발 의존성이다.
+    from pydantic_settings import BaseSettings  # type: ignore
+except ImportError:  # pragma: no cover
+    # 테스트/제한된 환경에서 pydantic-settings가 없을 때의 폴백.
+    # TODO: 배포 파이프라인에서 pydantic-settings 설치를 강제할 것.
+    from pydantic import BaseModel, ConfigDict
+
+    class BaseSettings(BaseModel):  # type: ignore
+        model_config = ConfigDict(extra="ignore")
+
+        def __init__(self, **data):
+            # 가능한 경우 환경변수로 기본값을 오버라이드(문자열 기준)
+            for field_name in getattr(self.__class__, "model_fields", {}).keys():
+                if field_name in data:
+                    continue
+                env_val = os.getenv(field_name)
+                if env_val is not None:
+                    data[field_name] = env_val
+            super().__init__(**data)
 
 
 class Settings(BaseSettings):

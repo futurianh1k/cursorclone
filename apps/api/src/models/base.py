@@ -119,6 +119,16 @@ class CreateProjectRequest(BaseModel):
         return v.strip()
 
 
+class UpdateProjectRequest(BaseModel):
+    """프로젝트 수정 요청"""
+    name: str = Field(..., min_length=1, max_length=255)
+
+    @field_validator("name")
+    @classmethod
+    def validate_project_name(cls, v: str) -> str:
+        return v.strip()
+
+
 class ProjectResponse(BaseModel):
     """프로젝트 응답"""
     project_id: str = Field(..., alias="projectId")

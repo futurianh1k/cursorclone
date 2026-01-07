@@ -67,6 +67,30 @@ export async function getProject(projectId: string): Promise<Project> {
   return response.json();
 }
 
+export async function updateProject(projectId: string, name: string): Promise<Project> {
+  const response = await fetch(`${API_BASE_URL}/api/projects/${encodeURIComponent(projectId)}`, {
+    method: "PATCH",
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ name }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.error || `Failed to update project: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function deleteProject(projectId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/projects/${encodeURIComponent(projectId)}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(error.detail?.detail || error.detail?.error || `Failed to delete project: ${response.statusText}`);
+  }
+}
+
 // ============================================================
 // Workspaces
 // ============================================================

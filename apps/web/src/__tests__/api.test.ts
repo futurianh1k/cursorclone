@@ -99,6 +99,41 @@ describe('API Client', () => {
     })
   })
 
+  describe('Projects API', () => {
+    it('updateProject > 프로젝트 이름을 수정한다', async () => {
+      const mockProject = { projectId: 'prj_1', name: 'NewName', ownerId: 'u1', orgId: 'o1' }
+
+      ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockProject,
+      })
+
+      const { updateProject } = await import('../lib/api')
+      const result = await updateProject('prj_1', 'NewName')
+
+      expect(result).toEqual(mockProject)
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/projects/prj_1'),
+        expect.objectContaining({ method: 'PATCH' })
+      )
+    })
+
+    it('deleteProject > 프로젝트를 삭제한다', async () => {
+      ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({}),
+      })
+
+      const { deleteProject } = await import('../lib/api')
+      await expect(deleteProject('prj_1')).resolves.toBeUndefined()
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/projects/prj_1'),
+        expect.objectContaining({ method: 'DELETE' })
+      )
+    })
+  })
+
   describe('getFileTree', () => {
     it('파일 트리를 가져온다', async () => {
       const mockTree = {

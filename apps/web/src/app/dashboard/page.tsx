@@ -16,6 +16,8 @@ import {
   stopIDEContainer,
   deleteIDEContainer,
   IDEContainerResponse,
+  updateProject,
+  deleteProject,
 } from "@/lib/api";
 import { getCurrentUser, User } from "@/lib/auth-api";
 import { groupWorkspacesByProject } from "@/lib/projectGrouping";
@@ -42,6 +44,10 @@ export default function DashboardOverview() {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(new Set());
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [editingProjectName, setEditingProjectName] = useState<string>("");
+  const [projectActionLoading, setProjectActionLoading] = useState<string | null>(null);
+  const [projectDeleteConfirm, setProjectDeleteConfirm] = useState<string | null>(null);
 
   // 워크스페이스 생성 모달
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -349,6 +355,77 @@ export default function DashboardOverview() {
 
   const collapseAllProjects = () => {
     setExpandedProjectIds(new Set());
+  };
+
+  const startEditProject = (projectId: string, currentName: string) => {
+    setProjectDeleteConfirm(null);
+    setEditingProjectId(projectId);
+    setEditingProjectName(currentName);
+  };
+
+  const cancelEditProject = () => {
+    setEditingProjectId(null);
+    setEditingProjectName("");
+  };
+
+  const saveProjectName = async (projectId: string) => {
+    const nextName = editingProjectName.trim();
+    if (!nextName) {
+      setError("프로젝트 이름은 비워둘 수 없습니다.");
+      return;
+    }
+    setProjectActionLoading(projectId);
+    setError(null);
+    try {
+      const updated = await updateProject(projectId, nextName);
+      setProjects((prev) => prev.map((p) => (p.projectId === projectId ? { ...p, name: updated.name } : p)));
+      setSuccessMessage("프로젝트 이름이 변경되었습니다");
+      setTimeout(() => setSuccessMessage(null), 3000);
+      cancelEditProject();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "프로젝트 이름 변경에 실패했습니다";
+      setError(message);
+    } finally {
+      setProjectActionLoading(null);
+    }
+  };
+
+  const requestDeleteProject = (projectId: string) => {
+    cancelEditProject();
+    setProjectDeleteConfirm(projectId);
+  };
+
+  const cancelDeleteProject = () => {
+    setProjectDeleteConfirm(null);
+  };
+
+  const confirmDeleteProject = async (projectId: string, workspaceCount: number) => {
+    if (workspaceCount > 0) {
+      setError("워크스페이스가 있는 프로젝트는 삭제할 수 없습니다. 먼저 워크스페이스를 삭제하세요.");
+      setProjectDeleteConfirm(null);
+      return;
+    }
+
+    setProjectActionLoading(projectId);
+    setError(null);
+    try {
+      await deleteProject(projectId);
+      setProjects((prev) => prev.filter((p) => p.projectId !== projectId));
+      setExpandedProjectIds((prev) => {
+        const next = new Set(prev);
+        next.delete(projectId);
+        return next;
+      });
+      if (selectedProjectId === projectId) setSelectedProjectId("");
+      setProjectDeleteConfirm(null);
+      setSuccessMessage("프로젝트가 삭제되었습니다");
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "프로젝트 삭제에 실패했습니다";
+      setError(message);
+    } finally {
+      setProjectActionLoading(null);
+    }
   };
 
   if (loading) {
@@ -739,6 +816,10 @@ export default function DashboardOverview() {
                 const expanded = expandedProjectIds.has(projectId);
                 const running = list.filter((w) => getContainerStatus(w.workspaceId) === "running").length;
                 const stopped = list.filter((w) => getContainerStatus(w.workspaceId) === "stopped").length;
+                const manageable = projects.some((p) => p.projectId === projectId);
+                const isEditing = editingProjectId === projectId;
+                const isDeleting = projectDeleteConfirm === projectId;
+                const isActionLoading = projectActionLoading === projectId;
 
                 return (
                   <div key={projectId} style={{ borderBottom: "1px solid #d1d5da" }}>
@@ -769,7 +850,29 @@ export default function DashboardOverview() {
                       >
                         <span style={{ fontSize: "14px", color: "#656d76" }}>{expanded ? "▾" : "▸"}</span>
                         <div>
-                          <div style={{ fontSize: "14px", fontWeight: 700 }}>{projectName}</div>
+                          <div style={{ fontSize: "14px", fontWeight: 700 }}>
+                            {isEditing ? (
+                              <input
+                                value={editingProjectName}
+                                onChange={(e) => setEditingProjectName(e.target.value)}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                }}
+                                style={{
+                                  width: "320px",
+                                  maxWidth: "60vw",
+                                  padding: "6px 8px",
+                                  fontSize: "14px",
+                                  border: "1px solid #d1d5da",
+                                  borderRadius: "6px",
+                                }}
+                                aria-label="프로젝트 이름"
+                              />
+                            ) : (
+                              projectName
+                            )}
+                          </div>
                           <div style={{ fontSize: "12px", color: "#9ca3af" }}>{projectId}</div>
                         </div>
                         <div style={{ display: "flex", gap: "10px", marginLeft: "16px", color: "#656d76", fontSize: "12px" }}>
@@ -779,24 +882,172 @@ export default function DashboardOverview() {
                         </div>
                       </button>
 
-                      <button
-                        onClick={() => openCreateModalForProject(projectId)}
-                        style={{
-                          padding: "8px 12px",
-                          fontSize: "12px",
-                          fontWeight: 600,
-                          backgroundColor: "#238636",
-                          color: "white",
-                          border: "none",
-                          borderRadius: "6px",
-                          cursor: "pointer",
-                        }}
-                        aria-label={`${projectName}에 워크스페이스 추가`}
-                      >
-                        + 워크스페이스 추가
-                      </button>
+                      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                        {manageable && (
+                          <>
+                            {isEditing ? (
+                              <>
+                                <button
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    saveProjectName(projectId);
+                                  }}
+                                  disabled={isActionLoading}
+                                  style={{
+                                    padding: "8px 12px",
+                                    fontSize: "12px",
+                                    fontWeight: 600,
+                                    backgroundColor: "#0366d6",
+                                    color: "white",
+                                    border: "none",
+                                    borderRadius: "6px",
+                                    cursor: isActionLoading ? "not-allowed" : "pointer",
+                                    opacity: isActionLoading ? 0.7 : 1,
+                                  }}
+                                >
+                                  {isActionLoading ? "저장 중..." : "저장"}
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    cancelEditProject();
+                                  }}
+                                  disabled={isActionLoading}
+                                  style={{
+                                    padding: "8px 12px",
+                                    fontSize: "12px",
+                                    fontWeight: 600,
+                                    backgroundColor: "#f6f8fa",
+                                    color: "#24292e",
+                                    border: "1px solid #d1d5da",
+                                    borderRadius: "6px",
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  취소
+                                </button>
+                              </>
+                            ) : isDeleting ? (
+                              <>
+                                <button
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    confirmDeleteProject(projectId, list.length);
+                                  }}
+                                  disabled={isActionLoading}
+                                  style={{
+                                    padding: "8px 12px",
+                                    fontSize: "12px",
+                                    fontWeight: 700,
+                                    backgroundColor: "#cf222e",
+                                    color: "white",
+                                    border: "none",
+                                    borderRadius: "6px",
+                                    cursor: isActionLoading ? "not-allowed" : "pointer",
+                                    opacity: isActionLoading ? 0.7 : 1,
+                                  }}
+                                >
+                                  {isActionLoading ? "삭제 중..." : "삭제 확인"}
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    cancelDeleteProject();
+                                  }}
+                                  disabled={isActionLoading}
+                                  style={{
+                                    padding: "8px 12px",
+                                    fontSize: "12px",
+                                    fontWeight: 600,
+                                    backgroundColor: "#f6f8fa",
+                                    color: "#24292e",
+                                    border: "1px solid #d1d5da",
+                                    borderRadius: "6px",
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  취소
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    startEditProject(projectId, projectName);
+                                  }}
+                                  style={{
+                                    padding: "8px 12px",
+                                    fontSize: "12px",
+                                    fontWeight: 600,
+                                    backgroundColor: "#f6f8fa",
+                                    color: "#24292e",
+                                    border: "1px solid #d1d5da",
+                                    borderRadius: "6px",
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  ✏️ 이름 변경
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    requestDeleteProject(projectId);
+                                  }}
+                                  style={{
+                                    padding: "8px 12px",
+                                    fontSize: "12px",
+                                    fontWeight: 600,
+                                    backgroundColor: "transparent",
+                                    color: "#cf222e",
+                                    border: "1px solid #d1d5da",
+                                    borderRadius: "6px",
+                                    cursor: "pointer",
+                                  }}
+                                  title={list.length > 0 ? "워크스페이스가 있으면 삭제할 수 없습니다" : "프로젝트 삭제"}
+                                >
+                                  🗑️ 삭제
+                                </button>
+                              </>
+                            )}
+                          </>
+                        )}
+
+                        <button
+                          onClick={() => openCreateModalForProject(projectId)}
+                          style={{
+                            padding: "8px 12px",
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            backgroundColor: "#238636",
+                            color: "white",
+                            border: "none",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                          }}
+                          aria-label={`${projectName}에 워크스페이스 추가`}
+                        >
+                          + 워크스페이스 추가
+                        </button>
+                      </div>
                     </div>
-                    {expanded && <div>{list.map(renderWorkspaceRow)}</div>}
+                    {expanded && (
+                      <div>
+                        {list.length === 0 ? (
+                          <div style={{ padding: "16px 24px", color: "#656d76", borderTop: "1px solid #f1f3f5" }}>
+                            워크스페이스가 없습니다. 우측의 “+ 워크스페이스 추가”로 생성하세요.
+                          </div>
+                        ) : (
+                          list.map(renderWorkspaceRow)
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               };

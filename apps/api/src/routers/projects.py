@@ -19,7 +19,7 @@ from sqlalchemy import select
 
 from ..db.connection import get_db
 from ..db.models import ProjectModel, WorkspaceModel, UserModel
-from ..models import CreateProjectRequest, ProjectResponse, WorkspaceResponse, ErrorResponse
+from ..models import CreateProjectRequest, UpdateProjectRequest, ProjectResponse, WorkspaceResponse, ErrorResponse
 from ..services.rbac_service import require_permission, Permission
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -108,4 +108,61 @@ async def get_project(
     if not p:
         raise HTTPException(status_code=404, detail={"error": "Project not found", "code": "PROJECT_NOT_FOUND"})
     return ProjectResponse(projectId=p.project_id, name=p.name, ownerId=p.owner_id, orgId=p.org_id)
+
+
+@router.patch(
+    "/{project_id}",
+    response_model=ProjectResponse,
+    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+    summary="프로젝트 이름 수정",
+)
+async def update_project(
+    project_id: str,
+    request: UpdateProjectRequest,
+    current_user: UserModel = Depends(require_permission(Permission.WORKSPACE_WRITE)),
+    db: AsyncSession = Depends(get_db),
+):
+    res = await db.execute(
+        select(ProjectModel).where(ProjectModel.project_id == project_id, ProjectModel.owner_id == current_user.user_id)
+    )
+    p = res.scalar_one_or_none()
+    if not p:
+        raise HTTPException(status_code=404, detail={"error": "Project not found", "code": "PROJECT_NOT_FOUND"})
+
+    p.name = request.name
+    await db.commit()
+    return ProjectResponse(projectId=p.project_id, name=p.name, ownerId=p.owner_id, orgId=p.org_id)
+
+
+@router.delete(
+    "/{project_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+    summary="프로젝트 삭제 (워크스페이스가 있으면 실패)",
+)
+async def delete_project(
+    project_id: str,
+    current_user: UserModel = Depends(require_permission(Permission.WORKSPACE_DELETE)),
+    db: AsyncSession = Depends(get_db),
+):
+    res = await db.execute(
+        select(ProjectModel).where(ProjectModel.project_id == project_id, ProjectModel.owner_id == current_user.user_id)
+    )
+    p = res.scalar_one_or_none()
+    if not p:
+        raise HTTPException(status_code=404, detail={"error": "Project not found", "code": "PROJECT_NOT_FOUND"})
+
+    ws_res = await db.execute(
+        select(WorkspaceModel.workspace_id).where(WorkspaceModel.project_id == project_id).limit(1)
+    )
+    exists_ws = ws_res.scalar_one_or_none()
+    if exists_ws:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "Project is not empty", "code": "PROJECT_NOT_EMPTY", "detail": "워크스페이스가 있는 프로젝트는 삭제할 수 없습니다."},
+        )
+
+    await db.delete(p)
+    await db.commit()
+    return None
 

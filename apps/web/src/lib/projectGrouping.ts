@@ -35,20 +35,18 @@ export function groupWorkspacesByProject(
     map.set(pid, list);
   }
 
-  // stable ordering: projects order first, then unknown groups
+  // stable ordering: projects order first (프로젝트가 비어 있어도 표시), then unknown groups
   const groups: ProjectGroup[] = [];
   const seen = new Set<string>();
 
   for (const p of projects) {
-    const list = map.get(p.projectId);
-    if (list && list.length > 0) {
-      groups.push({
-        projectId: p.projectId,
-        projectName: p.name,
-        workspaces: list,
-      });
-      seen.add(p.projectId);
-    }
+    const list = map.get(p.projectId) || [];
+    groups.push({
+      projectId: p.projectId,
+      projectName: p.name,
+      workspaces: list,
+    });
+    seen.add(p.projectId);
   }
 
   for (const [pid, list] of map.entries()) {
