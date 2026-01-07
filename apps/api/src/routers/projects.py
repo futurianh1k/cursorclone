@@ -52,6 +52,7 @@ async def create_project(
     project = ProjectModel(
         project_id=project_id,
         name=request.name,
+        description=request.description,
         owner_id=current_user.user_id,
         org_id=current_user.org_id,
     )
@@ -61,6 +62,7 @@ async def create_project(
     return ProjectResponse(
         projectId=project.project_id,
         name=project.name,
+        description=project.description,
         ownerId=project.owner_id,
         orgId=project.org_id,
     )
@@ -83,6 +85,7 @@ async def list_projects(
         ProjectResponse(
             projectId=p.project_id,
             name=p.name,
+            description=p.description,
             ownerId=p.owner_id,
             orgId=p.org_id,
         )
@@ -107,7 +110,7 @@ async def get_project(
     p = res.scalar_one_or_none()
     if not p:
         raise HTTPException(status_code=404, detail={"error": "Project not found", "code": "PROJECT_NOT_FOUND"})
-    return ProjectResponse(projectId=p.project_id, name=p.name, ownerId=p.owner_id, orgId=p.org_id)
+    return ProjectResponse(projectId=p.project_id, name=p.name, description=p.description, ownerId=p.owner_id, orgId=p.org_id)
 
 
 @router.patch(
@@ -129,9 +132,12 @@ async def update_project(
     if not p:
         raise HTTPException(status_code=404, detail={"error": "Project not found", "code": "PROJECT_NOT_FOUND"})
 
-    p.name = request.name
+    if request.name is not None:
+        p.name = request.name
+    if request.description is not None:
+        p.description = request.description
     await db.commit()
-    return ProjectResponse(projectId=p.project_id, name=p.name, ownerId=p.owner_id, orgId=p.org_id)
+    return ProjectResponse(projectId=p.project_id, name=p.name, description=p.description, ownerId=p.owner_id, orgId=p.org_id)
 
 
 @router.delete(
