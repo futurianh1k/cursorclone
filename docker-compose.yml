@@ -234,8 +234,12 @@ services:
   tabby:
     image: tabbyml/tabby:latest
     container_name: cursor-poc-tabby
-    # NOTE: 기본은 cpu로 기동(프로필 미지정 시에도 실행되도록)
-    command: serve --model ${TABBY_MODEL:-StarCoder2-3B} --device ${TABBY_DEVICE:-cpu} --no-webserver
+    # NOTE:
+    # - tabbyml/tabby 내부 llama-server(embedding)가 libcuda.so.1에 링크되어 있어,
+    #   NVIDIA 드라이버 라이브러리가 컨테이너에 주입되지 않으면 시작이 실패(exit 127)한다.
+    # - 따라서 기본 tabby는 GPU 런타임을 사용한다.
+    entrypoint: ["/opt/tabby/bin/tabby"]
+    command: ["serve", "--model", "${TABBY_MODEL:-StarCoder2-3B}", "--device", "cuda", "--no-webserver"]
     environment:
       TABBY_DISABLE_USAGE_COLLECTION: "1"
       TABBY_DISABLE_AUTH: "1"
@@ -246,6 +250,13 @@ services:
     networks:
       - cursor-network
     restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/v1/health"]
       interval: 30s
@@ -253,13 +264,14 @@ services:
       retries: 5
       # 캐시 초기화 후 모델 준비에 시간이 걸릴 수 있음
       start_period: 600s
-    # GPU로 띄우려면 docker compose --profile gpu up -d tabby-gpu 를 사용
+    # GPU로 띄우려면 별도 서비스(tabby-gpu) 대신 이 서비스 기본 사용을 권장
 
   # GPU 버전(선택)
   tabby-gpu:
     image: tabbyml/tabby:latest
     container_name: cursor-poc-tabby-gpu
-    command: serve --model ${TABBY_MODEL:-StarCoder2-3B} --device cuda --no-webserver
+    entrypoint: ["/opt/tabby/bin/tabby"]
+    command: ["serve", "--model", "${TABBY_MODEL:-StarCoder2-3B}", "--device", "cuda", "--no-webserver"]
     environment:
       TABBY_DISABLE_USAGE_COLLECTION: "1"
       TABBY_DISABLE_AUTH: "1"
