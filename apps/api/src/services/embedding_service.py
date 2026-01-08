@@ -26,6 +26,11 @@ logger = logging.getLogger(__name__)
 # 로컬 임베딩 모델 (sentence-transformers) 또는 vLLM 임베딩 사용
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-base-en-v1.5")
 EMBEDDING_DIMENSION = int(os.getenv("EMBEDDING_DIMENSION", "768"))
+EMBEDDING_MODEL_PATH = os.getenv("EMBEDDING_MODEL_PATH", "").strip()  # 로컬 디렉토리/파일 경로 (권장: VDE/오프라인)
+EMBEDDING_CACHE_DIR = os.getenv("EMBEDDING_CACHE_DIR", "").strip()    # HuggingFace 캐시 경로
+EMBEDDING_LOCAL_FILES_ONLY = os.getenv("EMBEDDING_LOCAL_FILES_ONLY", "false").lower() == "true"
+EMBEDDING_STRICT = os.getenv("EMBEDDING_STRICT", "false").lower() == "true"
+EMBEDDING_ALLOW_MOCK = os.getenv("EMBEDDING_ALLOW_MOCK", "true").lower() == "true"
 
 # vLLM 임베딩 서버 (선택적)
 VLLM_EMBEDDING_URL = os.getenv("VLLM_EMBEDDING_URL", "")
@@ -207,14 +212,29 @@ class EmbeddingService:
     """코드 임베딩 생성 서비스"""
     
     def __init__(self):
-        self.model_name = EMBEDDING_MODEL
-        self.dimension = EMBEDDING_DIMENSION
+        # NOTE: 테스트/런타임에서 환경변수를 바꿀 수 있으므로, 인스턴스 생성 시점에 env를 다시 읽는다.
+        self.model_name = os.getenv("EMBEDDING_MODEL", EMBEDDING_MODEL)
+        self.dimension = int(os.getenv("EMBEDDING_DIMENSION", str(EMBEDDING_DIMENSION)))
+        self.model_path = os.getenv("EMBEDDING_MODEL_PATH", "").strip()
+        self.cache_dir = os.getenv("EMBEDDING_CACHE_DIR", "").strip() or None
+        self.local_files_only = os.getenv("EMBEDDING_LOCAL_FILES_ONLY", "false").lower() == "true"
+        strict_env = os.getenv("EMBEDDING_STRICT", "false").lower() == "true"
+        allow_mock_env = os.getenv("EMBEDDING_ALLOW_MOCK", "true").lower() == "true"
+
+        # 오프라인(local_files_only)에서는 실패를 숨기면 안 됨 (조용히 mock으로 떨어지지 않게)
+        self.strict = strict_env or self.local_files_only
+        self.allow_mock = (allow_mock_env and not self.strict)
+
+        # 백엔드 선택도 인스턴스 단위로 유지
+        self.use_local_embedding = os.getenv("USE_LOCAL_EMBEDDING", "true").lower() == "true"
+        self.vllm_embedding_url = os.getenv("VLLM_EMBEDDING_URL", VLLM_EMBEDDING_URL).strip()
+
         self._model = None
         self._http_client = None
     
     async def initialize(self):
         """임베딩 모델 초기화"""
-        if USE_LOCAL_EMBEDDING:
+        if self.use_local_embedding:
             await self._init_local_model()
         else:
             self._http_client = httpx.AsyncClient(timeout=30.0)
@@ -224,14 +244,53 @@ class EmbeddingService:
         """로컬 sentence-transformers 모델 초기화"""
         try:
             from sentence_transformers import SentenceTransformer
+
+            # 오프라인 모드: transformers/hf-hub가 네트워크 호출하지 않도록 강제
+            if self.local_files_only:
+                os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+                os.environ.setdefault("HF_HUB_OFFLINE", "1")
+
+            # 모델 소스 결정 (로컬 경로 우선)
+            model_source = self.model_path or self.model_name
+            if self.model_path and not os.path.exists(self.model_path):
+                raise RuntimeError(f"EMBEDDING_MODEL_PATH not found: {self.model_path}")
+
             # CPU에서 실행
-            self._model = SentenceTransformer(self.model_name, device="cpu")
+            try:
+                # sentence-transformers 버전에 따라 local_files_only/cache_folder 파라미터 지원 여부가 다를 수 있어 방어적으로 처리
+                kwargs = {"device": "cpu"}
+                if self.cache_dir:
+                    kwargs["cache_folder"] = self.cache_dir
+                if self.local_files_only:
+                    kwargs["local_files_only"] = True
+                self._model = SentenceTransformer(model_source, **kwargs)
+            except TypeError:
+                # local_files_only 인자가 없는 구버전 대응: env offline로 방어 후 로딩
+                if self.cache_dir:
+                    self._model = SentenceTransformer(model_source, device="cpu", cache_folder=self.cache_dir)
+                else:
+                    self._model = SentenceTransformer(model_source, device="cpu")
+
             self.dimension = self._model.get_sentence_embedding_dimension()
-            logger.info(f"Local embedding model loaded: {self.model_name}, dim={self.dimension}")
+            logger.info(
+                f"Local embedding model loaded: source={model_source}, dim={self.dimension}, "
+                f"offline={self.local_files_only}, cache_dir={self.cache_dir or ''}"
+            )
         except ImportError:
-            logger.warning("sentence-transformers not installed, using mock embeddings")
+            msg = "sentence-transformers not installed"
+            if self.strict:
+                raise RuntimeError(msg)
+            logger.warning(f"{msg}, using mock embeddings (development only)")
             self._model = None
+        except RuntimeError:
+            # 명시적으로 발생시킨 구성 오류(예: EMBEDDING_MODEL_PATH not found)는 그대로 전달
+            raise
         except Exception as e:
+            if self.strict:
+                raise RuntimeError(
+                    "Failed to load embedding model in strict/offline mode. "
+                    "Pre-download the model into EMBEDDING_MODEL_PATH or HuggingFace cache and retry."
+                ) from e
             logger.error(f"Failed to load embedding model: {e}")
             self._model = None
     
@@ -245,11 +304,17 @@ class EmbeddingService:
         if not texts:
             return []
         
-        if USE_LOCAL_EMBEDDING and self._model:
+        if self.use_local_embedding and self._model:
             return await self._embed_local(texts)
-        elif VLLM_EMBEDDING_URL:
+        elif self.vllm_embedding_url:
             return await self._embed_vllm(texts)
         else:
+            # Strict 모드에서는 조용히 mock으로 떨어지지 않는다.
+            if self.strict:
+                raise RuntimeError(
+                    "Embedding backend not available in strict mode. "
+                    "Enable local embedding with a local model, or configure VLLM_EMBEDDING_URL."
+                )
             # Mock 임베딩 (개발용)
             return await self._embed_mock(texts)
     
@@ -265,13 +330,15 @@ class EmbeddingService:
             return embeddings
         except Exception as e:
             logger.error(f"Local embedding failed: {e}")
+            if self.strict:
+                raise
             return await self._embed_mock(texts)
     
     async def _embed_vllm(self, texts: List[str]) -> List[List[float]]:
         """vLLM 서버로 임베딩"""
         try:
             response = await self._http_client.post(
-                f"{VLLM_EMBEDDING_URL}/embeddings",
+                f"{self.vllm_embedding_url}/embeddings",
                 json={
                     "model": self.model_name,
                     "input": texts,
@@ -282,6 +349,8 @@ class EmbeddingService:
             return [item["embedding"] for item in data["data"]]
         except Exception as e:
             logger.error(f"vLLM embedding failed: {e}")
+            if self.strict:
+                raise
             return await self._embed_mock(texts)
     
     async def _embed_mock(self, texts: List[str]) -> List[List[float]]:
