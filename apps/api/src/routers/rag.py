@@ -87,6 +87,22 @@ class ContextRequest(BaseModel):
     include_file_tree: bool = Field(False, description="파일 트리 포함 여부")
     current_file: Optional[str] = Field(None, description="현재 편집 중인 파일 경로")
     current_file_content: Optional[str] = Field(None, description="현재 파일 내용")
+    task_type: Optional[str] = Field(
+        None,
+        description="작업 유형(선택). 미지정 시 서버에서 휴리스틱 분류. 예: autocomplete/refactor/bugfix/explain/search/chat",
+    )
+    max_context_tokens: Optional[int] = Field(
+        None,
+        ge=256,
+        le=12000,
+        description="컨텍스트 토큰 예산(선택). 미지정 시 서버 기본값 사용",
+    )
+    max_context_chars: Optional[int] = Field(
+        None,
+        ge=1024,
+        le=200000,
+        description="컨텍스트 문자 예산(선택). 미지정 시 서버 기본값 사용",
+    )
 
 
 class ContextItem(BaseModel):
@@ -163,9 +179,13 @@ async def index_workspace(
     async def run_indexing():
         try:
             indexer = await get_code_indexer()
-            await indexer.index_workspace(
+            # 증분 인덱싱(기본) + 강제 재인덱싱 옵션 지원
+            await indexer.index_workspace_incremental(
                 workspace_id=request.workspace_id,
                 workspace_path=str(workspace_path),
+                db=db,
+                tenant_id=current_user.org_id,
+                project_id=workspace.project_id,
                 force_reindex=request.force_reindex,
             )
         except Exception as e:
@@ -266,10 +286,21 @@ async def delete_index(
 async def search_code(
     request: SearchRequest,
     current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """코드 검색"""
     embedding_service = await get_embedding_service()
     vector_store = await get_vector_store()
+
+    # 스코프 확보 (workspace -> project/tenant)
+    result = await db.execute(
+        select(WorkspaceModel).where(
+            WorkspaceModel.workspace_id == request.workspace_id,
+        )
+    )
+    workspace = result.scalar_one_or_none()
+    if not workspace:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
     
     # 쿼리 임베딩
     query_embedding = await embedding_service.embed_text(request.query)
@@ -278,6 +309,8 @@ async def search_code(
     results = await vector_store.search(
         query_embedding=query_embedding,
         workspace_id=request.workspace_id,
+        tenant_id=current_user.org_id,
+        project_id=workspace.project_id,
         limit=request.limit,
         file_filter=request.file_filter,
         language_filter=request.language_filter,
@@ -330,11 +363,16 @@ async def build_context(
     context_result = await context_builder.build_context(
         query=request.query,
         workspace_id=request.workspace_id,
+        tenant_id=current_user.org_id,
+        project_id=workspace.project_id if workspace else None,
         workspace_path=workspace_path,
         max_results=request.max_results,
         include_file_tree=request.include_file_tree,
         current_file=request.current_file,
         current_file_content=request.current_file_content,
+        task_type=request.task_type,
+        max_context_tokens=request.max_context_tokens,
+        max_context_chars=request.max_context_chars,
     )
     
     return ContextResponse(

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any, Set
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import hashlib
 
 from .embedding_service import (
     CodeChunk,
@@ -165,6 +166,8 @@ class CodeIndexerService:
         self,
         workspace_id: str,
         workspace_path: str,
+        tenant_id: Optional[str] = None,
+        project_id: Optional[str] = None,
         force_reindex: bool = False
     ) -> IndexingResult:
         """워크스페이스 전체 인덱싱"""
@@ -245,6 +248,8 @@ class CodeIndexerService:
                         "end_line": chunk.end_line,
                         "language": chunk.language,
                         "workspace_id": chunk.workspace_id,
+                        "project_id": project_id,
+                        "tenant_id": tenant_id,
                         "metadata": chunk.metadata,
                     }
                     for chunk in batch
@@ -286,6 +291,131 @@ class CodeIndexerService:
             progress.error = str(e)
             progress.completed_at = datetime.now(timezone.utc)
             
+            return IndexingResult(
+                workspace_id=workspace_id,
+                files_processed=progress.indexed_files,
+                chunks_created=progress.indexed_chunks,
+                duration_seconds=(datetime.now(timezone.utc) - start_time).total_seconds(),
+                success=False,
+                error=str(e),
+            )
+
+    async def index_workspace_incremental(
+        self,
+        workspace_id: str,
+        workspace_path: str,
+        db,
+        tenant_id: Optional[str],
+        project_id: str,
+        force_reindex: bool = False,
+    ) -> IndexingResult:
+        """
+        증분 인덱싱:
+        - workspace_file_index 테이블을 기준으로 변경된 파일만 재인덱싱
+        - 삭제된 파일은 vector store에서 삭제 + 메타테이블에서도 제거
+        """
+        from sqlalchemy import select, delete
+        from ..db.models import WorkspaceFileIndexModel
+
+        start_time = datetime.now(timezone.utc)
+        progress = IndexingProgress(
+            workspace_id=workspace_id,
+            status="running",
+            started_at=start_time,
+        )
+        self._progress[workspace_id] = progress
+
+        try:
+            if force_reindex:
+                await self._vector_store.delete_by_workspace(workspace_id)
+                await db.execute(delete(WorkspaceFileIndexModel).where(WorkspaceFileIndexModel.workspace_id == workspace_id))
+                await db.commit()
+
+            files = await self.scan_workspace(workspace_path)
+            progress.total_files = len(files)
+
+            # 기존 메타 로드
+            existing_rows = await db.execute(
+                select(WorkspaceFileIndexModel).where(WorkspaceFileIndexModel.workspace_id == workspace_id)
+            )
+            existing = {r.file_path: r for r in existing_rows.scalars().all()}
+
+            current_paths: Set[str] = set()
+            changed_files: List[str] = []
+
+            for file_path in files:
+                try:
+                    relative_path = str(file_path.relative_to(workspace_path))
+                    current_paths.add(relative_path)
+
+                    stat = file_path.stat()
+                    mtime_ns = getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1e9))
+                    size_bytes = stat.st_size
+
+                    # 빠른 판단: mtime/size가 동일하면 skip
+                    prev = existing.get(relative_path)
+                    if prev and prev.mtime_ns == mtime_ns and prev.size_bytes == size_bytes:
+                        continue
+
+                    # 강한 판단: sha256 비교
+                    content = file_path.read_bytes()
+                    sha = hashlib.sha256(content).hexdigest()
+
+                    if prev and prev.sha256 == sha:
+                        # 내용은 같고 mtime만 바뀐 경우 메타만 갱신
+                        prev.mtime_ns = mtime_ns
+                        prev.size_bytes = size_bytes
+                        continue
+
+                    changed_files.append(relative_path)
+                except Exception as e:
+                    logger.warning(f"Failed to check file {file_path}: {e}")
+                    continue
+
+            # 삭제된 파일 처리
+            removed_paths = set(existing.keys()) - current_paths
+            for p in removed_paths:
+                await self._vector_store.delete_by_file(workspace_id, p)
+                await db.execute(
+                    delete(WorkspaceFileIndexModel).where(
+                        WorkspaceFileIndexModel.workspace_id == workspace_id,
+                        WorkspaceFileIndexModel.file_path == p,
+                    )
+                )
+
+            await db.commit()
+
+            # 변경된 파일 인덱싱
+            chunks_created = 0
+            for rel in changed_files:
+                ok = await self.index_file_with_scope(
+                    workspace_id=workspace_id,
+                    workspace_path=workspace_path,
+                    file_path=rel,
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    db=db,
+                )
+                if ok:
+                    progress.indexed_files += 1
+                # index_file_with_scope에서 chunk 수를 직접 반환하지 않으므로 대략 누적은 생략
+
+            progress.status = "completed"
+            progress.completed_at = datetime.now(timezone.utc)
+
+            duration = (progress.completed_at - start_time).total_seconds()
+            return IndexingResult(
+                workspace_id=workspace_id,
+                files_processed=progress.indexed_files,
+                chunks_created=chunks_created,
+                duration_seconds=duration,
+                success=True,
+            )
+        except Exception as e:
+            logger.error(f"Incremental indexing failed for {workspace_id}: {e}")
+            progress.status = "failed"
+            progress.error = str(e)
+            progress.completed_at = datetime.now(timezone.utc)
             return IndexingResult(
                 workspace_id=workspace_id,
                 files_processed=progress.indexed_files,
@@ -351,6 +481,94 @@ class CodeIndexerService:
             
         except Exception as e:
             logger.error(f"Failed to index file {file_path}: {e}")
+            return False
+
+    async def index_file_with_scope(
+        self,
+        workspace_id: str,
+        workspace_path: str,
+        file_path: str,
+        tenant_id: Optional[str],
+        project_id: str,
+        db,
+    ) -> bool:
+        """
+        단일 파일 인덱싱 (스코프 포함 + workspace_file_index 메타 갱신)
+        """
+        from sqlalchemy import select
+        from ..db.models import WorkspaceFileIndexModel
+
+        try:
+            full_path = Path(workspace_path) / file_path
+            if not full_path.exists():
+                return False
+
+            # 기존 파일 임베딩 삭제
+            await self._vector_store.delete_by_file(workspace_id, file_path)
+
+            content_bytes = full_path.read_bytes()
+            sha = hashlib.sha256(content_bytes).hexdigest()
+            content = content_bytes.decode("utf-8", errors="ignore")
+
+            chunks = self._chunker.chunk_file(
+                content=content,
+                file_path=file_path,
+                workspace_id=workspace_id,
+            )
+            if chunks:
+                embedding_results = await self._embedding_service.embed_chunks(chunks)
+                chunk_ids = [r.chunk_id for r in embedding_results]
+                embeddings = [r.embedding for r in embedding_results]
+                payloads = [
+                    {
+                        "content": chunk.content,
+                        "file_path": chunk.file_path,
+                        "start_line": chunk.start_line,
+                        "end_line": chunk.end_line,
+                        "language": chunk.language,
+                        "workspace_id": chunk.workspace_id,
+                        "project_id": project_id,
+                        "tenant_id": tenant_id,
+                        "metadata": chunk.metadata,
+                    }
+                    for chunk in chunks
+                ]
+                await self._vector_store.upsert_embeddings(chunk_ids=chunk_ids, embeddings=embeddings, payloads=payloads)
+
+            stat = full_path.stat()
+            mtime_ns = getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1e9))
+            size_bytes = stat.st_size
+
+            row = await db.execute(
+                select(WorkspaceFileIndexModel).where(
+                    WorkspaceFileIndexModel.workspace_id == workspace_id,
+                    WorkspaceFileIndexModel.file_path == file_path,
+                )
+            )
+            row = row.scalar_one_or_none()
+            if row:
+                row.sha256 = sha
+                row.mtime_ns = mtime_ns
+                row.size_bytes = size_bytes
+                row.org_id = tenant_id
+                row.project_id = project_id
+            else:
+                db.add(
+                    WorkspaceFileIndexModel(
+                        org_id=tenant_id,
+                        project_id=project_id,
+                        workspace_id=workspace_id,
+                        file_path=file_path,
+                        sha256=sha,
+                        size_bytes=size_bytes,
+                        mtime_ns=mtime_ns,
+                    )
+                )
+            await db.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to index file with scope {file_path}: {e}")
+            await db.rollback()
             return False
     
     def get_progress(self, workspace_id: str) -> Optional[IndexingProgress]:

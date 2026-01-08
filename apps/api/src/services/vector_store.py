@@ -96,6 +96,17 @@ class VectorStoreService:
                 field_name="workspace_id",
                 field_schema=models.PayloadSchemaType.KEYWORD,
             )
+            # 스코프 필드 (권한/테넌트 격리)
+            self._client.create_payload_index(
+                collection_name=CODE_COLLECTION_NAME,
+                field_name="tenant_id",
+                field_schema=models.PayloadSchemaType.KEYWORD,
+            )
+            self._client.create_payload_index(
+                collection_name=CODE_COLLECTION_NAME,
+                field_name="project_id",
+                field_schema=models.PayloadSchemaType.KEYWORD,
+            )
             self._client.create_payload_index(
                 collection_name=CODE_COLLECTION_NAME,
                 field_name="file_path",
@@ -160,6 +171,8 @@ class VectorStoreService:
         self,
         query_embedding: List[float],
         workspace_id: str,
+        tenant_id: Optional[str] = None,
+        project_id: Optional[str] = None,
         limit: int = 10,
         score_threshold: float = 0.5,
         file_filter: Optional[str] = None,
@@ -179,6 +192,22 @@ class VectorStoreService:
                     match=models.MatchValue(value=workspace_id),
                 )
             ]
+
+            # 스코프 강제(가능하면 좁게)
+            if tenant_id:
+                must_conditions.append(
+                    models.FieldCondition(
+                        key="tenant_id",
+                        match=models.MatchValue(value=tenant_id),
+                    )
+                )
+            if project_id:
+                must_conditions.append(
+                    models.FieldCondition(
+                        key="project_id",
+                        match=models.MatchValue(value=project_id),
+                    )
+                )
             
             if file_filter:
                 must_conditions.append(

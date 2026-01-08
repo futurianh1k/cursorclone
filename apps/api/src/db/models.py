@@ -281,3 +281,75 @@ class UserSessionModel(Base):
         Index("idx_session_token", "session_token"),
         Index("idx_session_expires", "expires_at"),
     )
+
+
+class WorkspaceFileIndexModel(Base):
+    """
+    워크스페이스 파일 인덱싱 메타데이터 (증분 인덱싱/변경 감지용)
+
+    - 파일 내용 원문은 저장하지 않음 (보안/용량)
+    - 파일 해시/mtime/size만 저장하여 변경 여부 판단
+    """
+    __tablename__ = "workspace_file_index"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    org_id = Column(String(100), ForeignKey("organizations.org_id"), nullable=True, index=True)
+    project_id = Column(String(100), ForeignKey("projects.project_id"), nullable=False, index=True)
+    workspace_id = Column(
+        String(100),
+        ForeignKey("workspaces.workspace_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    file_path = Column(String(1000), nullable=False)  # workspace root 기준 상대경로
+    sha256 = Column(String(64), nullable=False)
+    size_bytes = Column(BigInteger, nullable=True)
+    mtime_ns = Column(BigInteger, nullable=True)
+
+    indexed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    __table_args__ = (
+        Index("idx_wfi_ws_path", "workspace_id", "file_path", unique=True),
+        Index("idx_wfi_ws_updated", "workspace_id", "updated_at"),
+        Index("idx_wfi_proj_updated", "project_id", "updated_at"),
+    )
+
+
+class WorkspaceSymbolModel(Base):
+    """
+    워크스페이스 심볼 인덱스 (파일/심볼 검색용)
+
+    - Cursor/IDE에서 프로젝트 전역 컨텍스트를 빠르게 잡기 위한 최소 텍스트 인덱스 레이어
+    - “참조(References)” 인덱스는 PoC 2단계로 확장(TODO)
+    """
+    __tablename__ = "workspace_symbols"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    org_id = Column(String(100), ForeignKey("organizations.org_id"), nullable=True, index=True)
+    project_id = Column(String(100), ForeignKey("projects.project_id"), nullable=False, index=True)
+    workspace_id = Column(
+        String(100),
+        ForeignKey("workspaces.workspace_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    file_path = Column(String(1000), nullable=False)
+    symbol_name = Column(String(255), nullable=False, index=True)
+    symbol_kind = Column(String(50), nullable=False, index=True)  # function|class|method|variable|type
+    start_line = Column(Integer, nullable=True)
+    end_line = Column(Integer, nullable=True)
+    signature = Column(Text, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    __table_args__ = (
+        Index("idx_wsym_ws_name", "workspace_id", "symbol_name"),
+        Index("idx_wsym_ws_file", "workspace_id", "file_path"),
+        Index("idx_wsym_proj_name", "project_id", "symbol_name"),
+    )

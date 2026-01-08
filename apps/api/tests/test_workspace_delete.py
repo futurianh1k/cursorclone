@@ -49,9 +49,15 @@ class TestWorkspaceDelete:
 
         with patch.object(Path, "exists", return_value=True):
             with patch.object(Path, "is_dir", return_value=True):
-                with patch.object(Path, "resolve") as mock_resolve:
-                    # resolve()가 올바른 경로를 반환하도록 설정
-                    mock_resolve.return_value = test_workspace
+                with patch.object(Path, "resolve", autospec=True) as mock_resolve:
+                    # Path.resolve를 패치하면 /workspaces base도 동일하게 패치되므로
+                    # base_resolved는 /workspaces, 대상은 /workspaces/test-ws 로 분리되도록 side_effect를 사용한다.
+                    def _resolve_side_effect(self):
+                        if str(self) == "/workspaces":
+                            return Path("/workspaces")
+                        return test_workspace
+
+                    mock_resolve.side_effect = _resolve_side_effect
 
                     # Mock으로 실제 삭제는 하지 않음
                     delete_workspace_directory(test_workspace)
@@ -73,9 +79,14 @@ class TestWorkspaceDelete:
         """디렉토리가 아닌 경로 삭제"""
         with patch.object(Path, "exists", return_value=True):
             with patch.object(Path, "is_dir", return_value=False):
-                with patch.object(Path, "resolve") as mock_resolve:
+                with patch.object(Path, "resolve", autospec=True) as mock_resolve:
                     test_file = Path("/workspaces/test-file.txt")
-                    mock_resolve.return_value = test_file
+                    def _resolve_side_effect(self):
+                        if str(self) == "/workspaces":
+                            return Path("/workspaces")
+                        return test_file
+
+                    mock_resolve.side_effect = _resolve_side_effect
 
                     with pytest.raises(ValueError, match="Path is not a directory"):
                         delete_workspace_directory(test_file)

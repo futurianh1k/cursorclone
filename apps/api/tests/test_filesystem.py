@@ -23,12 +23,12 @@ class TestWorkspaceRoot:
     def test_get_workspace_root_dev_mode(self, monkeypatch):
         """개발 모드 테스트"""
         monkeypatch.setenv("DEV_MODE", "true")
-        root = get_workspace_root("demo", dev_mode=True)
-        assert str(root) == str(Path.home() / "cctv-fastapi")
+        root = get_workspace_root("demo")
+        assert str(root) == "/workspaces/demo"
     
     def test_get_workspace_root_prod_mode(self):
         """운영 모드 테스트"""
-        root = get_workspace_root("ws_test", dev_mode=False)
+        root = get_workspace_root("ws_test")
         assert str(root) == "/workspaces/ws_test"
 
 

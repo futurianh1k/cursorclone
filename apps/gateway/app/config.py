@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     upstream_client_cert_file: Optional[str] = Field(default=None, alias="UPSTREAM_CLIENT_CERT_FILE")
     upstream_client_key_file: Optional[str] = Field(default=None, alias="UPSTREAM_CLIENT_KEY_FILE")
 
+    # Internal upstream token (service-to-service) — do not forward workspace Authorization token
+    upstream_internal_token: Optional[str] = Field(default=None, alias="UPSTREAM_INTERNAL_TOKEN")
+    upstream_internal_token_header: str = Field(default="x-internal-token", alias="UPSTREAM_INTERNAL_TOKEN_HEADER")
+
     # HTTP
     upstream_timeout_seconds: float = Field(default=30.0, alias="UPSTREAM_TIMEOUT_SECONDS")
     stream_read_timeout_seconds: float = Field(default=60.0, alias="STREAM_READ_TIMEOUT_SECONDS")
@@ -89,6 +93,9 @@ def _fallback_settings_from_env() -> Settings:
     s.upstream_ca_file = os.getenv("UPSTREAM_CA_FILE") or None
     s.upstream_client_cert_file = os.getenv("UPSTREAM_CLIENT_CERT_FILE") or None
     s.upstream_client_key_file = os.getenv("UPSTREAM_CLIENT_KEY_FILE") or None
+
+    s.upstream_internal_token = os.getenv("UPSTREAM_INTERNAL_TOKEN") or None
+    s.upstream_internal_token_header = os.getenv("UPSTREAM_INTERNAL_TOKEN_HEADER", s.upstream_internal_token_header)
 
     s.upstream_timeout_seconds = float(os.getenv("UPSTREAM_TIMEOUT_SECONDS", str(s.upstream_timeout_seconds)))
     s.stream_read_timeout_seconds = float(os.getenv("STREAM_READ_TIMEOUT_SECONDS", str(s.stream_read_timeout_seconds)))

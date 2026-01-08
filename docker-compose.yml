@@ -75,10 +75,23 @@ services:
       QDRANT_PORT: 6333
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-base-en-v1.5}
       USE_LOCAL_EMBEDDING: ${USE_LOCAL_EMBEDDING:-true}
+      # Gateway -> API 내부 인증 토큰
+      GATEWAY_INTERNAL_TOKEN: ${GATEWAY_INTERNAL_TOKEN:-change-me-in-production}
+      # (C) 임베딩 오프라인 모드 (금융권/VDE 권장)
+      # - 모델을 사전 다운로드해 ./models 아래에 배치하고, API 컨테이너에 read-only로 마운트
+      # - 캐시는 named volume(vllm_cache)로 공유하여 외부 다운로드 없이 재시작에도 유지
+      EMBEDDING_MODEL_PATH: ${EMBEDDING_MODEL_PATH:-/models/embedding}
+      EMBEDDING_CACHE_DIR: ${EMBEDDING_CACHE_DIR:-/root/.cache/huggingface}
+      EMBEDDING_LOCAL_FILES_ONLY: ${EMBEDDING_LOCAL_FILES_ONLY:-false}
+      EMBEDDING_STRICT: ${EMBEDDING_STRICT:-false}
     volumes:
       - ./workspaces:/workspaces
       - ./apps/api/.env:/app/.env:ro
       - ./packages:/packages:ro
+      # 오프라인 임베딩 모델 디렉토리 (사용 시)
+      - ./models:/models:ro
+      # HuggingFace 캐시(임베딩/토크나이저 등) — vLLM 캐시와 공유
+      - vllm_cache:/root/.cache/huggingface
       # Docker 소켓 마운트 (IDE 컨테이너 관리용)
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
@@ -123,6 +136,9 @@ services:
       UPSTREAM_RAG: ${UPSTREAM_RAG:-http://cursor-poc-api:8000}
       # Upstream auth separation
       UPSTREAM_AUTH_MODE: ${UPSTREAM_AUTH_MODE:-none}
+      # Gateway -> API (rag/agent) 내부 토큰 헤더 (Authorization과 분리)
+      UPSTREAM_INTERNAL_TOKEN: ${GATEWAY_INTERNAL_TOKEN:-change-me-in-production}
+      UPSTREAM_INTERNAL_TOKEN_HEADER: ${UPSTREAM_INTERNAL_TOKEN_HEADER:-x-internal-token}
       # Audit DB (partitioned audit_events)
       AUDIT_DB_DSN: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-cursor_poc}
       AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-365}

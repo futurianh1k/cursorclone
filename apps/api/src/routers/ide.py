@@ -61,6 +61,33 @@ WORKSPACE_BASE_PATH = os.getenv("WORKSPACE_BASE_PATH", "/home/ubuntu/workspaces"
 _ide_containers: dict[str, dict] = {}
 _used_ports: set[int] = set()
 
+def _normalize_status(raw_status: Optional[str]) -> str:
+    """
+    Docker 컨테이너 상태 문자열을 IDEContainerStatus enum 값으로 정규화한다.
+    - docker-py의 container.status는 'created', 'running', 'exited' 등일 수 있다.
+    - API 응답은 IDEContainerStatus만 허용한다.
+    """
+    s = (raw_status or "").lower().strip()
+    allowed = {
+        IDEContainerStatus.PENDING.value,
+        IDEContainerStatus.STARTING.value,
+        IDEContainerStatus.RUNNING.value,
+        IDEContainerStatus.STOPPING.value,
+        IDEContainerStatus.STOPPED.value,
+        IDEContainerStatus.ERROR.value,
+    }
+    if s in allowed:
+        return s
+    if s in {"created"}:
+        return IDEContainerStatus.PENDING.value
+    if s in {"restarting"}:
+        return IDEContainerStatus.STARTING.value
+    if s in {"paused"}:
+        return IDEContainerStatus.RUNNING.value
+    if s in {"exited", "dead"}:
+        return IDEContainerStatus.STOPPED.value
+    return IDEContainerStatus.ERROR.value
+
 
 # ============================================================
 # Helper Functions
@@ -161,12 +188,8 @@ def scan_existing_containers():
                     port = int(ports["8080/tcp"][0]["HostPort"])
                     _used_ports.add(port)
             
-            # 상태 결정
-            status = IDEContainerStatus.STOPPED.value
-            if container.status == "running":
-                status = IDEContainerStatus.RUNNING.value
-            elif container.status == "exited":
-                status = IDEContainerStatus.STOPPED.value
+            # 상태 결정 (docker raw status -> enum)
+            status = _normalize_status(container.status)
             
             # 이미 저장소에 있으면 상태만 업데이트
             if container_id in _ide_containers:
@@ -219,7 +242,7 @@ async def create_ide_container(
     container_id = f"ide-{request.workspace_id}"
 
     # 기존 컨테이너 스캔(다른 경로에서 생성된 IDE 컨테이너도 발견 가능)
-    _scan_existing_docker_containers()
+    scan_existing_containers()
     
     # 기존 컨테이너 확인
     existing = next(
@@ -299,7 +322,7 @@ async def _create_container_async(
                 except Exception:
                     mapped_port = None
 
-                _ide_containers[container_id]["status"] = IDEContainerStatus.RUNNING.value if existing.status == "running" else existing.status
+                _ide_containers[container_id]["status"] = _normalize_status(existing.status)
                 _ide_containers[container_id]["port"] = mapped_port or _ide_containers[container_id]["port"]
                 _ide_containers[container_id]["url"] = f"{IDE_BASE_URL}:{_ide_containers[container_id]['port']}"
                 _ide_containers[container_id]["internal_url"] = f"http://{container_id}:8080"
@@ -383,6 +406,8 @@ async def list_ide_containers(
     
     containers = []
     for container_info in _ide_containers.values():
+        # 혹시라도 이전 버전이 남긴 raw status가 있으면 여기서 정규화(방어)
+        container_info["status"] = _normalize_status(container_info.get("status"))
         # 사용자 필터 (user-default는 모든 사용자에게 표시)
         if container_info["user_id"] != user_id and container_info["user_id"] != "user-default":
             continue
@@ -413,10 +438,7 @@ async def get_ide_container(container_id: str):
         try:
             client = docker.from_env()
             container = client.containers.get(container_id)
-            if container.status == "running":
-                container_info["status"] = IDEContainerStatus.RUNNING.value
-            elif container.status == "exited":
-                container_info["status"] = IDEContainerStatus.STOPPED.value
+            container_info["status"] = _normalize_status(container.status)
         except docker.errors.NotFound:
             container_info["status"] = IDEContainerStatus.STOPPED.value
         except Exception as e:
