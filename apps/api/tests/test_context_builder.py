@@ -65,3 +65,62 @@ def test_current_file_context_truncates():
     assert ctx.start_line == 1
     assert ctx.end_line == 100
     assert "truncated" in ctx.content
+
+
+def test_classify_task_type_heuristics():
+    svc = ContextBuilderService()
+    assert svc._classify_task_type("이 에러 고쳐줘", None, None) == "bugfix"
+    assert svc._classify_task_type("리팩토링 해줘", None, None) == "refactor"
+    assert svc._classify_task_type("이 코드 설명해줘", None, None) == "explain"
+    assert svc._classify_task_type("어디서 정의돼?", None, None) == "search"
+    # 짧은 질의 + current file => autocomplete로 가중
+    assert svc._classify_task_type("add", "main.py", "print('x')") == "autocomplete"
+
+
+@pytest.mark.asyncio
+async def test_pack_respects_budget_and_truncates(monkeypatch):
+    svc = ContextBuilderService()
+    svc._embedding_service = AsyncMock()
+    svc._embedding_service.embed_text.return_value = [0.0] * 8
+    svc._vector_store = AsyncMock()
+    big = "\n".join([f"line{i}: " + ("x" * 40) for i in range(1, 200)])
+    svc._vector_store.search.return_value = [
+        SearchResult(
+            chunk_id="c1",
+            score=0.9,
+            content=big,
+            file_path="a.py",
+            start_line=1,
+            end_line=200,
+            language="python",
+            workspace_id="ws1",
+            metadata={},
+        ),
+        SearchResult(
+            chunk_id="c2",
+            score=0.8,
+            content=big,
+            file_path="b.py",
+            start_line=1,
+            end_line=200,
+            language="python",
+            workspace_id="ws1",
+            metadata={},
+        ),
+    ]
+
+    res = await svc.build_context(
+        query="이거 고쳐줘 (bug)",
+        workspace_id="ws1",
+        tenant_id="org_default",
+        project_id="prj1",
+        include_file_tree=False,
+        # 매우 작은 예산으로 강제 절단
+        max_context_chars=800,
+        max_context_tokens=200,
+    )
+
+    assert res.truncated is True
+    assert res.total_chars <= 800
+    assert len(res.contexts) >= 1
+    assert any("truncated" in c.content for c in res.contexts)

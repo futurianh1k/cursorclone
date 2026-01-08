@@ -14,7 +14,7 @@ Cursor의 핵심 기능 중 하나인 Context Builder를 구현합니다.
 
 import os
 import logging
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal, Tuple
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 # 컨텍스트 크기 제한 (토큰 대략 추정)
 MAX_CONTEXT_CHARS = int(os.getenv("MAX_CONTEXT_CHARS", "12000"))
+MAX_CONTEXT_TOKENS = int(os.getenv("MAX_CONTEXT_TOKENS", "3000"))
 
 # 검색 결과 수
 DEFAULT_SEARCH_LIMIT = int(os.getenv("DEFAULT_SEARCH_LIMIT", "10"))
@@ -78,6 +79,9 @@ class ContextResult:
     file_tree: Optional[str] = None
     total_chars: int = 0
     truncated: bool = False
+    # 내부 디버깅/진단용(응답 모델에는 노출하지 않음)
+    task_type: str = "chat"
+    total_tokens_est: int = 0
     
     def to_prompt(self) -> str:
         """LLM 프롬프트용 전체 컨텍스트 생성"""
@@ -127,6 +131,9 @@ class ContextBuilderService:
         language_filter: Optional[str] = None,
         current_file: Optional[str] = None,
         current_file_content: Optional[str] = None,
+        task_type: Optional[str] = None,
+        max_context_tokens: Optional[int] = None,
+        max_context_chars: Optional[int] = None,
     ) -> ContextResult:
         """
         쿼리에 관련된 코드 컨텍스트 구성
@@ -147,11 +154,20 @@ class ContextBuilderService:
         """
         contexts: List[CodeContext] = []
         total_chars = 0
+        budget_chars = max_context_chars if max_context_chars is not None else MAX_CONTEXT_CHARS
+        budget_tokens = max_context_tokens if max_context_tokens is not None else MAX_CONTEXT_TOKENS
+
+        resolved_task_type = task_type or self._classify_task_type(
+            query=query,
+            current_file=current_file,
+            current_file_content=current_file_content,
+        )
         
-        # 1. 현재 파일 컨텍스트 우선 추가
+        # 1. 현재 파일 컨텍스트 우선 추가 (작업 유형에 따라 라인 수 조절)
         if current_file and current_file_content:
+            current_max_lines = 160 if resolved_task_type in {"bugfix", "refactor"} else 120
             current_ctx = self._create_current_file_context(
-                current_file, current_file_content
+                current_file, current_file_content, max_lines=current_max_lines
             )
             if current_ctx:
                 contexts.append(current_ctx)
@@ -172,25 +188,16 @@ class ContextBuilderService:
             language_filter=language_filter,
         )
         
-        # 4. 검색 결과를 컨텍스트로 변환
-        for result in search_results:
-            # 현재 파일과 중복되면 스킵
-            if current_file and result.file_path == current_file:
-                continue
-            
-            # 크기 제한 확인
-            if total_chars + len(result.content) > MAX_CONTEXT_CHARS:
-                break
-            
-            contexts.append(CodeContext(
-                file_path=result.file_path,
-                content=result.content,
-                start_line=result.start_line,
-                end_line=result.end_line,
-                language=result.language,
-                relevance_score=result.score,
-            ))
-            total_chars += len(result.content)
+        # 4. 작업 유형 + 예산 기반 컨텍스트 팩킹
+        packed, total_chars, total_tokens_est, truncated = self._pack_contexts(
+            task_type=resolved_task_type,
+            current_file=current_file,
+            current_file_context=contexts[0] if (contexts and current_file) else None,
+            search_results=search_results,
+            budget_chars=budget_chars,
+            budget_tokens=budget_tokens,
+        )
+        contexts = packed
         
         # 5. 파일 트리 생성 (선택적)
         file_tree = None
@@ -203,15 +210,211 @@ class ContextBuilderService:
             contexts=contexts,
             file_tree=file_tree,
             total_chars=total_chars,
-            truncated=total_chars >= MAX_CONTEXT_CHARS,
+            truncated=truncated,
+            task_type=resolved_task_type,
+            total_tokens_est=total_tokens_est,
         )
         
         logger.info(
             f"Context built: query='{query[:50]}...', "
-            f"contexts={len(contexts)}, chars={total_chars}"
+            f"task={resolved_task_type}, contexts={len(contexts)}, chars={total_chars}, tokens~={total_tokens_est}, truncated={truncated}"
         )
         
         return result
+
+    def _classify_task_type(
+        self,
+        query: str,
+        current_file: Optional[str],
+        current_file_content: Optional[str],
+    ) -> str:
+        """
+        작업 유형 분류(휴리스틱).
+        외부 모델 호출 없이, 온프레미스에서도 안정적으로 동작하도록 단순 규칙 기반으로 시작한다.
+        """
+        q = (query or "").strip().lower()
+        if not q:
+            return "chat"
+
+        # 명시 키워드 우선
+        if any(k in q for k in ["autocomplete", "auto complete", "자동완성", "완성해", "complete this", "suggest"]):
+            return "autocomplete"
+        if any(k in q for k in ["refactor", "리팩", "정리", "구조", "리네임", "rename", "cleanup"]):
+            return "refactor"
+        if any(k in q for k in ["bug", "버그", "에러", "error", "exception", "traceback", "stacktrace", "fail", "crash"]):
+            return "bugfix"
+        if any(k in q for k in ["explain", "설명", "what does", "무슨 뜻", "어떻게 동작"]):
+            return "explain"
+        if any(k in q for k in ["find", "search", "어디", "찾아", "where is", "grep"]):
+            return "search"
+
+        # 짧은 질의 + 현재 파일 존재 => 보통 자동완성/수정 맥락이므로 autocomplete로 가중
+        if current_file and current_file_content and len(q) <= 24:
+            return "autocomplete"
+
+        return "chat"
+
+    def _estimate_tokens(self, text: str) -> int:
+        """
+        토큰 수 추정.
+        - 가능하면 tiktoken 사용(설치되어 있으면)
+        - 아니면 보수적 근사치(4 chars/token)
+        """
+        if not text:
+            return 0
+        try:
+            import tiktoken  # type: ignore
+
+            enc = tiktoken.get_encoding("cl100k_base")
+            return len(enc.encode(text))
+        except Exception:
+            # 근사: 평균 4 chars/token
+            return max(1, len(text) // 4)
+
+    def _pack_contexts(
+        self,
+        task_type: str,
+        current_file: Optional[str],
+        current_file_context: Optional[CodeContext],
+        search_results: List[SearchResult],
+        budget_chars: int,
+        budget_tokens: int,
+    ) -> Tuple[List[CodeContext], int, int, bool]:
+        """
+        예산 기반 컨텍스트 선택/절단.
+        - workspace 규모가 커질수록 “많이 넣기”보다 “정확히 넣기”가 중요하므로
+          작업 유형에 따라 파일당 최대 청크 수를 제한하고, 전체 예산을 초과하지 않게 한다.
+        """
+        packed: List[CodeContext] = []
+        total_chars = 0
+        total_tokens = 0
+        truncated = False
+
+        def can_add(text: str) -> bool:
+            nonlocal total_chars, total_tokens
+            return (total_chars + len(text) <= budget_chars) and (total_tokens + self._estimate_tokens(text) <= budget_tokens)
+
+        def add_ctx(ctx: CodeContext):
+            nonlocal total_chars, total_tokens
+            packed.append(ctx)
+            total_chars += len(ctx.content)
+            total_tokens += self._estimate_tokens(ctx.content)
+
+        # 0) 현재 파일 컨텍스트는 가능하면 유지(최우선)
+        if current_file_context and can_add(current_file_context.content):
+            add_ctx(current_file_context)
+        elif current_file_context:
+            # 예산이 너무 작으면 현재 파일도 잘라서 넣는다
+            sliced = self._slice_text_to_budget(current_file_context.content, budget_chars=budget_chars, budget_tokens=budget_tokens)
+            if sliced:
+                ctx2 = CodeContext(
+                    file_path=current_file_context.file_path,
+                    content=sliced,
+                    start_line=current_file_context.start_line,
+                    end_line=current_file_context.end_line,
+                    language=current_file_context.language,
+                    relevance_score=current_file_context.relevance_score,
+                )
+                add_ctx(ctx2)
+                truncated = True
+
+        # 1) 작업 유형별 정책(간단한 v1)
+        per_file_max = 2 if task_type in {"bugfix", "refactor"} else 1
+        # autocomplete는 “많이”보다 “가까운 것 조금”이 낫다
+        if task_type == "autocomplete":
+            per_file_max = 1
+
+        # 2) 결과 정렬(점수 우선)
+        sorted_results = sorted(search_results, key=lambda r: r.score, reverse=True)
+
+        file_counts: Dict[str, int] = {}
+        for r in sorted_results:
+            if current_file and r.file_path == current_file:
+                continue
+            if file_counts.get(r.file_path, 0) >= per_file_max:
+                continue
+
+            content = r.content or ""
+            if not content:
+                continue
+
+            if not can_add(content):
+                # 청크를 예산에 맞게 잘라서라도 1개는 넣을 수 있으면 넣는다
+                sliced = self._slice_text_to_budget(content, budget_chars=budget_chars - total_chars, budget_tokens=budget_tokens - total_tokens)
+                if sliced:
+                    packed.append(
+                        CodeContext(
+                            file_path=r.file_path,
+                            content=sliced,
+                            start_line=r.start_line,
+                            end_line=r.end_line,
+                            language=r.language,
+                            relevance_score=r.score,
+                        )
+                    )
+                    total_chars += len(sliced)
+                    total_tokens += self._estimate_tokens(sliced)
+                    file_counts[r.file_path] = file_counts.get(r.file_path, 0) + 1
+                    truncated = True
+                else:
+                    truncated = True
+                # 예산이 소진되었으면 중단
+                if total_chars >= budget_chars or total_tokens >= budget_tokens:
+                    break
+                continue
+
+            add_ctx(
+                CodeContext(
+                    file_path=r.file_path,
+                    content=content,
+                    start_line=r.start_line,
+                    end_line=r.end_line,
+                    language=r.language,
+                    relevance_score=r.score,
+                )
+            )
+            file_counts[r.file_path] = file_counts.get(r.file_path, 0) + 1
+
+            if total_chars >= budget_chars or total_tokens >= budget_tokens:
+                truncated = True
+                break
+
+        return packed, total_chars, total_tokens, truncated
+
+    def _slice_text_to_budget(self, text: str, budget_chars: int, budget_tokens: int) -> str:
+        """
+        예산에 맞게 텍스트를 잘라 반환.
+        v1에서는 줄 단위로 자르고, 끝에 truncated 마커를 붙인다.
+        """
+        if not text:
+            return ""
+        if budget_chars <= 0 or budget_tokens <= 0:
+            return ""
+
+        # truncated 마커까지 고려해서 미리 여유를 남긴다
+        marker = "\n... (truncated)"
+        effective_chars = max(0, budget_chars - len(marker))
+
+        # 빠른 char 기반 절단(1차)
+        hard = text[:effective_chars]
+        if not hard:
+            return ""
+
+        # 줄 단위로 줄이면서 토큰도 맞춘다
+        lines = hard.splitlines()
+        out_lines: List[str] = []
+        for ln in lines:
+            candidate = "\n".join(out_lines + [ln])
+            if self._estimate_tokens(candidate) > budget_tokens:
+                break
+            out_lines.append(ln)
+
+        sliced = "\n".join(out_lines).strip()
+        if not sliced:
+            return ""
+        if not sliced.endswith("... (truncated)"):
+            sliced = f"{sliced}{marker}"
+        return sliced
     
     def _create_current_file_context(
         self,

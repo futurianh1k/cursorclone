@@ -87,6 +87,22 @@ class ContextRequest(BaseModel):
     include_file_tree: bool = Field(False, description="파일 트리 포함 여부")
     current_file: Optional[str] = Field(None, description="현재 편집 중인 파일 경로")
     current_file_content: Optional[str] = Field(None, description="현재 파일 내용")
+    task_type: Optional[str] = Field(
+        None,
+        description="작업 유형(선택). 미지정 시 서버에서 휴리스틱 분류. 예: autocomplete/refactor/bugfix/explain/search/chat",
+    )
+    max_context_tokens: Optional[int] = Field(
+        None,
+        ge=256,
+        le=12000,
+        description="컨텍스트 토큰 예산(선택). 미지정 시 서버 기본값 사용",
+    )
+    max_context_chars: Optional[int] = Field(
+        None,
+        ge=1024,
+        le=200000,
+        description="컨텍스트 문자 예산(선택). 미지정 시 서버 기본값 사용",
+    )
 
 
 class ContextItem(BaseModel):
@@ -354,6 +370,9 @@ async def build_context(
         include_file_tree=request.include_file_tree,
         current_file=request.current_file,
         current_file_content=request.current_file_content,
+        task_type=request.task_type,
+        max_context_tokens=request.max_context_tokens,
+        max_context_chars=request.max_context_chars,
     )
     
     return ContextResponse(
