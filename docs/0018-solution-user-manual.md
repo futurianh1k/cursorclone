@@ -132,6 +132,7 @@ IDE 컨테이너 생성 시 아래가 자동으로 구성되어야 합니다(운
 - VS Code User settings에 Tabby endpoint/token이 설정됨
 - Tabby 설정 파일이 마운트됨
 - Continue 설정이 마운트됨
+- (선택) 오프라인 VSIX 확장(예: opencode agent)이 `/opt/extra-extensions`로 마운트되어 시작 시 자동 설치됨
 
 이 동작은 API의 IDE 프로비저닝 로직에서 수행됩니다.
 

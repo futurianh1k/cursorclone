@@ -38,6 +38,10 @@ IDE_PORT_RANGE_START = int(os.getenv("IDE_PORT_RANGE_START", "9100"))
 IDE_PORT_RANGE_END = int(os.getenv("IDE_PORT_RANGE_END", "9200"))
 IDE_BASE_URL = os.getenv("IDE_BASE_URL", "http://localhost")
 WORKSPACE_BASE_PATH = os.getenv("WORKSPACE_BASE_PATH", "/workspaces")
+# Optional: host path containing offline VSIX extensions to preinstall in IDE container at startup.
+# - This must be a docker-host path because docker SDK volume source must be host-based.
+# - Recommended: map repo ./ide-extensions to a stable absolute host path and set HOST_IDE_EXTENSIONS_PATH accordingly.
+HOST_IDE_EXTENSIONS_PATH = os.getenv("HOST_IDE_EXTENSIONS_PATH")
 
 
 # In-memory 저장소 (PoC용)
@@ -284,6 +288,11 @@ class IDEService:
                         vscode_user_dir_host: {"bind": "/home/coder/.local/share/code-server/User", "mode": "rw"},
                         tabby_dir_host: {"bind": "/home/coder/.config/tabby", "mode": "rw"},
                         continue_dir_host: {"bind": "/home/coder/.continue", "mode": "rw"},
+                        **(
+                            {HOST_IDE_EXTENSIONS_PATH: {"bind": "/opt/extra-extensions", "mode": "ro"}}
+                            if HOST_IDE_EXTENSIONS_PATH
+                            else {}
+                        ),
                     },
                     environment={
                         "WORKSPACE_ID": workspace_id,

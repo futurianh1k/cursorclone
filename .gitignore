@@ -88,6 +88,9 @@ reports/
 *.backup
 *.bak
 
+# offline IDE extensions (VSIX binaries should not be committed)
+ide-extensions/*.vsix
+
 # Playwright (E2E)
 apps/web/playwright-report/
 apps/web/test-results/
