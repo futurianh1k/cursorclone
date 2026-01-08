@@ -18,11 +18,32 @@
     "configuration": {
       "title": "On-Prem Chat Panel",
       "properties": {
+        "cursorOnprem.rightPanel.launcher": {
+          "type": "boolean",
+          "default": true,
+          "description": "If enabled, show the On-Prem Agents launcher UI (webview) on startup."
+        },
         "cursorOnprem.rightPanel.agent": {
           "type": "string",
           "enum": ["continue", "opencode", "off"],
           "default": "continue",
           "description": "Which agent to prefer at startup. 'continue' opens Continue on the right panel. 'opencode' opens OpenCode terminal. 'off' does nothing automatically."
+        },
+        "cursorOnprem.gateway.apiBase": {
+          "type": "string",
+          "default": "",
+          "description": "On-prem Gateway base URL ending with /v1 (e.g. http://cursor-poc-gateway:8081/v1). If empty, uses $VLLM_API_ENDPOINT or Continue config."
+        },
+        "cursorOnprem.gateway.tokenSource": {
+          "type": "string",
+          "enum": ["tabby", "continue", "env", "none"],
+          "default": "tabby",
+          "description": "Where to load the workspace-scoped gateway token from. tabby=tabby.api.authToken, continue=~/.continue/config.json models[0].apiKey, env=GATEWAY_TOKEN, none=manual."
+        },
+        "cursorOnprem.chat.model": {
+          "type": "string",
+          "default": "",
+          "description": "Chat model name for /v1/chat/completions. If empty, uses Continue config models[0].model."
         }
       }
     },
@@ -36,10 +57,43 @@
         "title": "On-Prem: Open OpenCode (Terminal)"
       },
       {
+        "command": "cursorOnprem.openLauncher",
+        "title": "On-Prem: Open Agents Launcher (Right Panel)"
+      },
+      {
+        "command": "cursorOnprem.openOpenCodeChat",
+        "title": "On-Prem: Open OpenCode Chat (Webview)"
+      },
+      {
         "command": "cursorOnprem.chooseRightPanelAgent",
         "title": "On-Prem: Choose Agent (Continue/OpenCode)"
       }
-    ]
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "cursorOnpremAgents",
+          "title": "On-Prem Agents",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "cursorOnpremAgents": [
+        {
+          "type": "webview",
+          "id": "cursorOnprem.launcherView",
+          "name": "Launcher",
+          "visibility": "visible"
+        },
+        {
+          "type": "webview",
+          "id": "cursorOnprem.opencodeChatView",
+          "name": "OpenCode Chat",
+          "visibility": "hidden"
+        }
+      ]
+    }
   }
 }
 

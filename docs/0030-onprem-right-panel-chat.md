@@ -13,6 +13,9 @@
 - 또한 온프레미스 환경에서 **Continue ↔ OpenCode(터미널)** 중 선택할 수 있도록 명령/설정을 제공합니다.
   - 설정: `cursorOnprem.rightPanel.agent` = `continue` | `opencode` | `off`
   - 명령: `On-Prem: Choose Agent (Continue/OpenCode)`
+- 추가로 오른쪽 패널에 **고정 런처 UI(Webview)** 를 제공합니다.
+  - 런처는 Continue/OpenCode(터미널)/OpenCode Chat(Webview) 버튼과 상태(토큰/워크스페이스 claim 등)를 표시합니다.
+  - 설정: `cursorOnprem.rightPanel.launcher` = `true` | `false`
 - 운영자가 제공한 VSIX(`/opt/extra-extensions`)가 있더라도, 내장 VSIX(`/opt/builtin-extensions`)는 overlay에 영향을 받지 않도록 분리했습니다.
 
 ## 파일/경로
@@ -28,6 +31,8 @@
 ## 확인 방법(운영자)
 
 - IDE 접속 직후, 오른쪽 패널에 Continue가 자동으로 열리면 성공
+- IDE 접속 직후, Activity Bar에 **On-Prem Agents** 아이콘이 보이고(런처),
+  자동으로 오른쪽 패널에 런처가 뜨면 성공(best-effort).
 - 단축키:
   - `Alt+Ctrl+M`: Continue 오른쪽 사이드바 토글
   - `Ctrl+M`: Continue 입력 포커스

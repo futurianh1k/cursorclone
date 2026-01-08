@@ -3,6 +3,7 @@
   <Default Extension=".js" ContentType="application/javascript"/>
   <Default Extension=".json" ContentType="application/json"/>
   <Default Extension=".md" ContentType="text/markdown"/>
+  <Default Extension=".svg" ContentType="image/svg+xml"/>
   <Default Extension=".vsixmanifest" ContentType="text/xml"/>
 </Types>
 
