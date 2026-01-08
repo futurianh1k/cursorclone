@@ -84,6 +84,7 @@ Thumbs.db
 
 # Workspace specific (온프레미스 PoC)
 workspaces/
+reports/
 *.backup
 *.bak
 
