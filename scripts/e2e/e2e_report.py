@@ -47,6 +47,13 @@ def main():
             "No passwords or access tokens are stored in this report.",
             "IDE Tabby/Chat UI validation is manual; this report covers API/Gateway reachability and RAG endpoints.",
         ],
+        "manual_checks": [
+            {"id": "ide_open", "title": "IDE(code-server) URL 접속(암호 요청 없음)", "status": "pending"},
+            {"id": "ide_state_persist", "title": "IDE 상태 보존(파일 수정 후 stop/start에도 유지)", "status": "pending"},
+            {"id": "tabby_autocomplete", "title": "Tabby 자동완성 동작(IDE에서 추천 표시)", "status": "pending"},
+            {"id": "chat_via_gateway", "title": "채팅이 Gateway 경유로 동작(응답/스트리밍)", "status": "pending"},
+            {"id": "rag_quality_smoke", "title": "RAG 컨텍스트가 스코프에 맞고(혼입 없음) 품질이 타당", "status": "pending"},
+        ],
     }
 
     json_path = out_dir / f"{base}.json"
@@ -81,6 +88,14 @@ def main():
     lines.append("## Notes")
     for n in report["notes"]:
         lines.append(f"- {n}")
+
+    lines.append("")
+    lines.append("## Manual Checks (Operator)")
+    lines.append("")
+    lines.append("> 아래 항목은 IDE UI에서 사람이 직접 확인해야 합니다. 체크 후 status를 기록하세요.")
+    lines.append("")
+    for item in report.get("manual_checks", []):
+        lines.append(f"- [ ] **{item['id']}**: {item['title']}  _(status: {item['status']})_")
 
     md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

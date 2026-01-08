@@ -262,3 +262,36 @@ chmod +x scripts/e2e/whitelabel_e2e.sh
 scripts/e2e/whitelabel_e2e.sh
 ```
 
+### 8-1) 실행 결과 리포트(JSON/Markdown) 생성(권장)
+
+스크립트는 기본적으로 **민감정보(비밀번호/토큰) 없이** 실행 결과를 `reports/e2e/`에 저장합니다.
+
+- **출력 파일**
+  - `reports/e2e/whitelabel_e2e_<UTC timestamp>.json`
+  - `reports/e2e/whitelabel_e2e_<UTC timestamp>.md`
+- **추가 포함(수동 체크리스트)**
+  - 리포트(`*.md`)에 IDE UI에서 직접 확인해야 하는 항목(자동완성/채팅/상태보존 등) 체크박스가 포함됩니다.
+- **포함 정보**
+  - base/api/gateway/web URL
+  - 생성된 `projectId/workspaceId/ideUrl`
+  - 헬스/RAG 호출의 성공 여부 및 상태코드
+- **미포함(저장 금지)**
+  - 사용자 비밀번호
+  - access token / refresh token
+
+사용 예시:
+
+```bash
+export E2E_REPORT=1
+export E2E_REPORT_DIR="reports/e2e"
+export E2E_REPORT_BASENAME="customerA_smoke_001"
+scripts/e2e/whitelabel_e2e.sh
+ls -al reports/e2e | tail
+```
+
+리포트 생성을 끄려면:
+
+```bash
+export E2E_REPORT=0
+scripts/e2e/whitelabel_e2e.sh
+```
