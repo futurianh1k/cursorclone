@@ -146,6 +146,7 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="user@example.com"
+              data-testid="auth-email"
               style={{
                 width: "100%",
                 padding: "8px 12px",
@@ -174,6 +175,7 @@ export default function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder={mode === "login" ? "비밀번호" : "최소 8자"}
               minLength={mode === "signup" ? 8 : undefined}
+              data-testid="auth-password"
               style={{
                 width: "100%",
                 padding: "8px 12px",
@@ -203,6 +205,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
+            data-testid="auth-submit"
             style={{
               width: "100%",
               padding: "10px",
@@ -236,6 +239,7 @@ export default function LoginPage() {
                     setMode("signup");
                     setError(null);
                   }}
+                  data-testid="auth-switch-signup"
                   style={{
                     color: "#0366d6",
                     background: "none",
@@ -256,6 +260,7 @@ export default function LoginPage() {
                     setMode("login");
                     setError(null);
                   }}
+                  data-testid="auth-switch-login"
                   style={{
                     color: "#0366d6",
                     background: "none",
