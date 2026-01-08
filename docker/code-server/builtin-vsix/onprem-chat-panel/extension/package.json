@@ -1,0 +1,45 @@
+{
+  "name": "onprem-chat-panel",
+  "displayName": "On-Prem Chat Panel (Continue on Right)",
+  "description": "Opens Continue chat in the right sidebar on startup for offline/on-prem environments (avoids Copilot Chat UI).",
+  "version": "0.0.1",
+  "publisher": "cursor-onprem",
+  "engines": {
+    "vscode": "^1.67.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "On-Prem Chat Panel",
+      "properties": {
+        "cursorOnprem.rightPanel.agent": {
+          "type": "string",
+          "enum": ["continue", "opencode", "off"],
+          "default": "continue",
+          "description": "Which agent to prefer at startup. 'continue' opens Continue on the right panel. 'opencode' opens OpenCode terminal. 'off' does nothing automatically."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "cursorOnprem.openContinueOnRight",
+        "title": "On-Prem: Open Continue Chat on Right Sidebar"
+      },
+      {
+        "command": "cursorOnprem.openOpenCode",
+        "title": "On-Prem: Open OpenCode (Terminal)"
+      },
+      {
+        "command": "cursorOnprem.chooseRightPanelAgent",
+        "title": "On-Prem: Choose Agent (Continue/OpenCode)"
+      }
+    ]
+  }
+}
+

@@ -6,6 +6,8 @@
   - code-server(Open VSX) 환경에서는 `GitHub.copilot-chat`을 찾지 못해 오류가 날 수 있습니다.
 - OpenCode는 **오른쪽 CHAT 패널이 아니라 “터미널 기반 UI”**로 동작합니다.
   - 단축키/명령으로 **opencode 터미널을 열어** 사용하세요.
+- 이 PoC는 오프라인/온프레미스 환경을 위해 **오른쪽 패널에 Continue 채팅 UI를 자동으로 띄우는 내장 VSIX**를 포함합니다.
+  - 즉, “오른쪽에서 쓰는 채팅 UI”는 **Copilot Chat이 아니라 Continue**가 기본입니다.
 
 ---
 

@@ -19,6 +19,13 @@ LABEL description="code-server heavy image with offline toolchain via .deb bundl
 USER root
 
 # ------------------------------------------------------------
+# 내장 VSIX 소스(런타임에서 python3로 패키징 후 설치)
+# - /opt/builtin-vsix-src/* 를 entrypoint에서 .vsix로 만들고 /opt/builtin-extensions 에 설치한다.
+# - heavy는 오프라인 deb 번들에 python3를 포함하는 것을 권장(미포함 시 해당 기능은 best-effort).
+# ------------------------------------------------------------
+COPY docker/code-server/builtin-vsix/onprem-chat-panel/ /opt/builtin-vsix-src/onprem-chat-panel/
+
+# ------------------------------------------------------------
 # (오프라인) deb 번들 설치
 # - offline/debs 에 의존성까지 포함한 .deb들을 넣어두면, dpkg -i로 설치한다.
 # - apt-get -f install(온라인 repo 필요)을 사용하지 않기 때문에,
