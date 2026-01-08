@@ -47,6 +47,7 @@ from .routers import (
     ai_gateway_router,
 )
 from .routers.rag import router as rag_router
+from .routers.rag_v1 import router as rag_v1_router
 
 # ============================================================
 # App 설정
@@ -348,6 +349,7 @@ app.include_router(ssh_router)        # SSH 접속 관리 라우터
 app.include_router(ide_router)        # IDE (code-server) 프로비저닝 라우터
 app.include_router(ai_gateway_router) # AI Gateway (LiteLLM/Tabby 통합) 라우터
 app.include_router(rag_router)        # RAG (코드 검색/컨텍스트 빌더) 라우터
+app.include_router(rag_v1_router)     # Gateway 경유 /v1/rag 라우터
 
 # WebSocket 라우터 등록
 app.include_router(ws_router)

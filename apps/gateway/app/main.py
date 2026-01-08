@@ -16,7 +16,7 @@ from .metrics import init_metrics, observe_request, observe_tokens
 from .diffhash import extract_unified_diff_from_json, sha256_text
 from .db import ensure_schema
 from .jwks_cache import jwks_cache
-from .upstream_auth import upstream_headers, httpx_verify_and_cert
+from .upstream_auth import upstream_headers, internal_headers, httpx_verify_and_cert
 from .ilm import retention_purge
 
 app = FastAPI(title="AI Gateway", version="0.3.0")
@@ -147,6 +147,7 @@ async def gateway_middleware(request: Request, call_next):
         "Content-Type": request.headers.get("content-type", "application/json"),
         "Accept": request.headers.get("accept", "application/json"),
         **upstream_headers(),
+        **internal_headers(service_name),
     }
 
     verify, cert = httpx_verify_and_cert()
@@ -221,6 +222,31 @@ async def gateway_middleware(request: Request, call_next):
     model_name = request.headers.get("x-model", "unknown")
     input_tokens = None
     output_tokens = None
+
+    # (D) RAG 응답도 필요 시 DLP 검사(응답 단계)
+    if service_name == "rag" and status_code < 400:
+        post_action, post_rule_id = dlp_engine.inspect_bytes(content)
+        if post_action == "block":
+            latency_ms = int((time.time() - start) * 1000)
+            await emit_audit(
+                identity,
+                corr,
+                request.url.path,
+                400,
+                latency_ms,
+                route_target=service_name,
+                policy_version=policy_version,
+                dlp_action="block",
+                dlp_rule_id=post_rule_id,
+                extra={"dlp_stage": "post"},
+            )
+            observe_request(service_name, 400, latency_ms, identity.project_id, "block", post_rule_id)
+            return Response(
+                content=json.dumps(_json_error("DLP_BLOCKED", corr), ensure_ascii=False).encode("utf-8"),
+                status_code=400,
+                media_type="application/json",
+                headers={"X-Correlation-Id": corr, "X-Policy-Version": policy_version},
+            )
 
     if service_name == "agent" and status_code < 400 and content_type.startswith("application/json"):
         try:

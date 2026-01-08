@@ -22,6 +22,24 @@ def test_upstream_auth_does_not_forward_workspace_token():
     assert "Authorization" not in headers or headers["Authorization"].startswith("Bearer ")
 
 
+def test_internal_headers_only_for_rag_and_agent(monkeypatch):
+    from app.upstream_auth import internal_headers
+
+    monkeypatch.setenv("UPSTREAM_INTERNAL_TOKEN", "internal-token")
+    monkeypatch.setenv("UPSTREAM_INTERNAL_TOKEN_HEADER", "x-internal-token")
+
+    # settings는 import 시 이미 초기화될 수 있으므로, 모듈을 리로드해서 env 반영
+    import importlib
+    import app.config as cfg
+    importlib.reload(cfg)
+    import app.upstream_auth as ua
+    importlib.reload(ua)
+
+    assert ua.internal_headers("rag") == {"x-internal-token": "internal-token"}
+    assert ua.internal_headers("agent") == {"x-internal-token": "internal-token"}
+    assert ua.internal_headers("chat") == {}
+
+
 def test_dlp_default_mode_is_pre_only():
     """
     Non-negotiable:
