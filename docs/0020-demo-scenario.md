@@ -91,6 +91,9 @@
 - **성공 기준**
   - 답변이 오고, 민감정보 없이 일반적인 설명이 생성됨
 
+> 참고(중요): code-server의 오른쪽 **CHAT 패널은 Copilot Chat(GitHub.copilot-chat)** UI일 수 있습니다.
+> Open VSX 환경에서는 해당 확장을 찾지 못해 오류가 날 수 있으니, 데모에서는 **Continue 채팅 UI**를 사용하세요.
+
 ### 3-6) Tabby 자동완성(짧고 강하게)
 
 - **화면**: IDE 에디터에서 Python/TS 파일 생성 후 몇 글자 입력
