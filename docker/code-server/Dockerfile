@@ -21,7 +21,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # coder 사용자로 전환
+# ------------------------------------------------------------
+# 내장 VSIX 소스(런타임에서 python3로 패키징 후 설치)
+# - /opt/builtin-vsix-src/* 를 entrypoint에서 .vsix로 만들고 /opt/builtin-extensions 에 설치한다.
+# ------------------------------------------------------------
+USER root
+COPY builtin-vsix/onprem-chat-panel/ /opt/builtin-vsix-src/onprem-chat-panel/
 USER coder
+
 WORKDIR /home/coder
 
 # ============================================================
