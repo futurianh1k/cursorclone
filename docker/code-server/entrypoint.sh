@@ -21,5 +21,12 @@ if [ -d "${EXT_DIR}" ]; then
   shopt -u nullglob
 fi
 
+# Optional: opencode.ai CLI (offline) mounted at /opt/opencode-cli
+# If an executable "opencode" exists, prepend to PATH so VS Code extensions can invoke it.
+if [ -x "/opt/opencode-cli/opencode" ]; then
+  export PATH="/opt/opencode-cli:${PATH}"
+  echo "[entrypoint] opencode CLI detected at /opt/opencode-cli/opencode (PATH updated)"
+fi
+
 exec dumb-init code-server "$@"
 

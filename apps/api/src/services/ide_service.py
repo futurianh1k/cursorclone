@@ -42,6 +42,10 @@ WORKSPACE_BASE_PATH = os.getenv("WORKSPACE_BASE_PATH", "/workspaces")
 # - This must be a docker-host path because docker SDK volume source must be host-based.
 # - Recommended: map repo ./ide-extensions to a stable absolute host path and set HOST_IDE_EXTENSIONS_PATH accordingly.
 HOST_IDE_EXTENSIONS_PATH = os.getenv("HOST_IDE_EXTENSIONS_PATH")
+# Optional: host path containing opencode.ai CLI (offline) to be mounted into IDE container.
+# Expected layout (recommended):
+# - <HOST_OPENCODE_CLI_PATH>/opencode  (executable)
+HOST_OPENCODE_CLI_PATH = os.getenv("HOST_OPENCODE_CLI_PATH")
 
 
 # In-memory 저장소 (PoC용)
@@ -291,6 +295,11 @@ class IDEService:
                         **(
                             {HOST_IDE_EXTENSIONS_PATH: {"bind": "/opt/extra-extensions", "mode": "ro"}}
                             if HOST_IDE_EXTENSIONS_PATH
+                            else {}
+                        ),
+                        **(
+                            {HOST_OPENCODE_CLI_PATH: {"bind": "/opt/opencode-cli", "mode": "ro"}}
+                            if HOST_OPENCODE_CLI_PATH
                             else {}
                         ),
                     },
