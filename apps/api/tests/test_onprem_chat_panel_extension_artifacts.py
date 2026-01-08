@@ -10,6 +10,7 @@ def test_onprem_chat_panel_vsix_source_exists():
     assert (src / "extension" / "extension.js").exists()
     assert (src / "extension.vsixmanifest").exists()
     assert (src / "[Content_Types].xml").exists()
+    assert (src / "extension" / "media" / "icon.svg").exists()
 
 
 def test_dockerfiles_reference_bundled_vsix_source():
@@ -30,4 +31,16 @@ def test_entrypoint_installs_bundled_and_extra_vsix():
     assert "EXTRA_EXT_DIR" in entrypoint
     assert "install_vsix_dir" in entrypoint
     assert "build_builtin_vsix_if_needed" in entrypoint
+
+
+def test_onprem_vsix_contributes_views_and_commands():
+    repo = Path(__file__).resolve().parents[3]
+    pkg = (repo / "docker" / "code-server" / "builtin-vsix" / "onprem-chat-panel" / "extension" / "package.json").read_text(
+        encoding="utf-8"
+    )
+    assert "cursorOnprem.launcherView" in pkg
+    assert "cursorOnprem.opencodeChatView" in pkg
+    assert "cursorOnprem.openLauncher" in pkg
+    assert "cursorOnprem.openOpenCodeChat" in pkg
+    assert "cursorOnprem.gateway.apiBase" in pkg
 
