@@ -100,6 +100,46 @@ class TestIDEContainerAPI:
         assert data["ideType"] == "code-server"
         assert data["status"] in ["pending", "starting", "running"]
 
+    def test_create_ide_container_passes_auth_none_and_bind_addr(self):
+        """
+        IDE 컨테이너 생성 시 code-server가 외부 접속 가능하도록
+        --auth none, --bind-addr 0.0.0.0:8080 이 전달되는지 확인.
+        """
+        # NOTE: docker가 없는 테스트 환경에서도 동작해야 하므로 docker.from_env를 모킹한다.
+        try:
+            from src.routers import ide as ide_router  # type: ignore
+        except Exception:
+            pytest.skip("ide router import failed")
+
+        if not hasattr(ide_router, "docker"):
+            pytest.skip("docker module not available in ide router")
+
+        mock_client = MagicMock()
+        mock_container = MagicMock()
+        mock_container.status = "running"
+        mock_container.attrs = {"NetworkSettings": {"Ports": {"8080/tcp": [{"HostPort": "9101"}]}}, "Config": {"Cmd": []}}
+        mock_client.containers.get.side_effect = Exception("not found")
+        mock_client.containers.run.return_value = mock_container
+
+        with patch.object(ide_router, "DOCKER_AVAILABLE", True), patch.object(ide_router.docker, "from_env", return_value=mock_client):
+            r = client.post("/api/ide/containers", json={"workspaceId": "test-ws-flags", "ideType": "code-server"})
+            assert r.status_code == 200
+            # background task scheduling 때문에 즉시 run이 호출되지 않을 수 있어,
+            # 직접 async 함수를 호출해 인자 전달을 검증한다.
+            # (FastAPI BackgroundTasks는 테스트 클라이언트에서 동기적으로 실행되지 않을 수 있음)
+            import asyncio
+            asyncio.get_event_loop().run_until_complete(
+                ide_router._create_container_async(  # type: ignore
+                    container_id="ide-test-ws-flags",
+                    workspace_id="test-ws-flags",
+                    port=9101,
+                    config=ide_router.IDEContainerConfig(),
+                )
+            )
+
+        _, kwargs = mock_client.containers.run.call_args
+        assert kwargs.get("command") == ["--auth", "none", "--bind-addr", "0.0.0.0:8080"]
+
     def test_create_ide_container_with_config(self):
         """설정을 포함한 IDE 컨테이너 생성 테스트"""
         response = client.post(

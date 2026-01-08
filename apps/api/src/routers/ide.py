@@ -313,6 +313,28 @@ async def _create_container_async(
             try:
                 existing = client.containers.get(container_id)
                 existing.reload()
+
+                # Legacy 컨테이너는 Cmd가 비어(auth=password + bind=127.0.0.1:8080 기본 설정) 외부 접속이 막힐 수 있다.
+                # 현재 PoC에서는 IDE 컨테이너가 반드시 아래 조건으로 기동해야 한다:
+                # - --auth none (비밀번호 없이)
+                # - --bind-addr 0.0.0.0:8080 (외부 바인딩)
+                # Docker inspect에서 Cmd가 null/empty면 legacy로 간주하고 재생성한다.
+                try:
+                    existing_cmd = (existing.attrs.get("Config", {}) or {}).get("Cmd")
+                except Exception:
+                    existing_cmd = None
+                if not existing_cmd:
+                    logger.warning(f"Legacy IDE container detected (Cmd is empty). Recreating: {container_id}")
+                    try:
+                        existing.stop(timeout=10)
+                    except Exception:
+                        pass
+                    try:
+                        existing.remove(force=True)
+                    except Exception:
+                        pass
+                    raise RuntimeError("legacy_container_recreated")
+
                 mapped_port = None
                 try:
                     ports = existing.attrs.get("NetworkSettings", {}).get("Ports", {})
@@ -337,6 +359,10 @@ async def _create_container_async(
             # code-server 컨테이너 생성
             container = client.containers.run(
                 IDE_CONTAINER_IMAGE,
+                # 반드시 외부 바인딩(0.0.0.0) + 비밀번호 없이(auth none) 기동해야 함.
+                # 그렇지 않으면 컨테이너 내부 config.yaml 기본값(auth=password, bind=127.0.0.1)이 적용되어
+                # 브라우저에서 로그인/접속이 실패할 수 있음.
+                command=["--auth", "none", "--bind-addr", "0.0.0.0:8080"],
                 detach=True,
                 name=container_id,
                 ports={"8080/tcp": port},
@@ -344,7 +370,6 @@ async def _create_container_async(
                     workspace_path: {"bind": "/home/coder/project", "mode": "rw"}
                 },
                 environment={
-                    "PASSWORD": "",  # 비밀번호 비활성화 (Keycloak 인증 사용)
                     "WORKSPACE_ID": workspace_id,
                 },
                 network=IDE_NETWORK,
