@@ -43,4 +43,7 @@ def test_onprem_vsix_contributes_views_and_commands():
     assert "cursorOnprem.openLauncher" in pkg
     assert "cursorOnprem.openOpenCodeChat" in pkg
     assert "cursorOnprem.gateway.apiBase" in pkg
+    assert "cursorOnprem.chat.attachCurrentFile" in pkg
+    assert "cursorOnprem.chat.attachSelectionOnly" in pkg
+    assert "cursorOnprem.chat.maxCurrentFileChars" in pkg
 

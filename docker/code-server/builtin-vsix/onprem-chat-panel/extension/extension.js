@@ -89,6 +89,62 @@ function getChatModel() {
   return typeof m === "string" ? m : "unknown";
 }
 
+function getAttachConfig() {
+  const cfg = vscode.workspace.getConfiguration();
+  const attachCurrentFile = cfg.get("cursorOnprem.chat.attachCurrentFile", true);
+  const attachSelectionOnly = cfg.get("cursorOnprem.chat.attachSelectionOnly", true);
+  const maxCurrentFileChars = cfg.get("cursorOnprem.chat.maxCurrentFileChars", 20000);
+  return {
+    attachCurrentFile: !!attachCurrentFile,
+    attachSelectionOnly: !!attachSelectionOnly,
+    maxCurrentFileChars: typeof maxCurrentFileChars === "number" ? maxCurrentFileChars : 20000,
+  };
+}
+
+function truncateWithNote(s, maxChars) {
+  if (!s || typeof s !== "string") return { text: "", truncated: false };
+  if (!maxChars || maxChars <= 0) return { text: s, truncated: false };
+  if (s.length <= maxChars) return { text: s, truncated: false };
+  const head = s.slice(0, maxChars);
+  return {
+    text:
+      head +
+      `\n\n[TRUNCATED: current_file_content exceeded ${maxChars} chars; remaining omitted to protect latency/memory]`,
+    truncated: true,
+  };
+}
+
+function getActiveEditorContext({ selectionOnly, maxChars }) {
+  const ed = vscode.window.activeTextEditor;
+  if (!ed) return null;
+  const doc = ed.document;
+  if (!doc) return null;
+  // Only attach files belonging to the current workspace
+  const wsFolder = vscode.workspace.getWorkspaceFolder(doc.uri);
+  if (!wsFolder) return null;
+
+  const relPath = vscode.workspace.asRelativePath(doc.uri);
+  const sel = ed.selection;
+  const hasSelection = sel && !sel.isEmpty;
+
+  let content = "";
+  let rangeInfo = null;
+  if (selectionOnly && hasSelection) {
+    content = doc.getText(sel);
+    rangeInfo = { startLine: sel.start.line + 1, endLine: sel.end.line + 1 };
+  } else {
+    content = doc.getText();
+  }
+
+  const { text, truncated } = truncateWithNote(content, maxChars);
+  return {
+    filePath: String(relPath),
+    content: text,
+    truncated,
+    selection: rangeInfo,
+  };
+}
+
 async function openContinueOnRight() {
   // Continue provides these commands. We use them instead of poking VS Code internals.
   const toggleAux = "continue.toggleAuxiliaryBar";
@@ -330,6 +386,14 @@ class OpenCodeChatViewProvider {
           <input type="checkbox" id="useRag" checked />
           RAG context 포함
         </label>
+        <label style="display:flex; gap:6px; align-items:center;">
+          <input type="checkbox" id="attachCurrent" checked />
+          현재 파일 첨부
+        </label>
+        <label style="display:flex; gap:6px; align-items:center;">
+          <input type="checkbox" id="selectionOnly" checked />
+          선택영역만(없으면 파일)
+        </label>
         <button id="btnClear">Clear</button>
         <button id="btnStatus">Status</button>
       </div>
@@ -373,7 +437,14 @@ class OpenCodeChatViewProvider {
           if (!text) return;
           $('input').value = '';
           append('user', text);
-          vscode.postMessage({ type: 'chat', text, useRag: $('useRag').checked, history: buf.slice(-12) });
+          vscode.postMessage({
+            type: 'chat',
+            text,
+            useRag: $('useRag').checked,
+            attachCurrent: $('attachCurrent').checked,
+            selectionOnly: $('selectionOnly').checked,
+            history: buf.slice(-12)
+          });
         });
         $('btnClear').addEventListener('click', () => {
           buf = [];
@@ -395,9 +466,11 @@ class OpenCodeChatViewProvider {
       if (msg?.type === "chat") {
         const text = String(msg.text || "").trim();
         const useRag = !!msg.useRag;
+        const attachCurrent = msg.attachCurrent !== undefined ? !!msg.attachCurrent : true;
+        const selectionOnly = msg.selectionOnly !== undefined ? !!msg.selectionOnly : true;
         const history = Array.isArray(msg.history) ? msg.history : [];
         try {
-          const answer = await runGatewayChat({ text, useRag, history });
+          const answer = await runGatewayChat({ text, useRag, history, attachCurrent, selectionOnly });
           view.webview.postMessage({ type: "assistant", text: answer });
         } catch (e) {
           view.webview.postMessage({ type: "error", text: String(e?.message || e) });
@@ -407,7 +480,7 @@ class OpenCodeChatViewProvider {
   }
 }
 
-async function runGatewayChat({ text, useRag, history }) {
+async function runGatewayChat({ text, useRag, history, attachCurrent, selectionOnly }) {
   const apiBase = getGatewayApiBase();
   const token = getGatewayToken();
   if (!token) throw new Error("Gateway token not found. Set tabby.api.authToken or Continue config apiKey.");
@@ -420,6 +493,15 @@ async function runGatewayChat({ text, useRag, history }) {
   const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
 
   let systemContext = "";
+  const attachCfg = getAttachConfig();
+  const shouldAttach = attachCurrent && attachCfg.attachCurrentFile;
+  const editorCtx = shouldAttach
+    ? getActiveEditorContext({
+        selectionOnly: selectionOnly && attachCfg.attachSelectionOnly,
+        maxChars: attachCfg.maxCurrentFileChars,
+      })
+    : null;
+
   if (useRag) {
     const ragUrl = `${apiBase.replace(/\\/+$/,'')}/rag/context`;
     const ragReq = {
@@ -430,6 +512,10 @@ async function runGatewayChat({ text, useRag, history }) {
       task_type: "chat",
       max_context_chars: 80000,
     };
+    if (editorCtx?.filePath && editorCtx?.content) {
+      ragReq.current_file = editorCtx.filePath;
+      ragReq.current_file_content = editorCtx.content;
+    }
     const r = await fetch(ragUrl, { method: "POST", headers, body: JSON.stringify(ragReq) });
     if (!r.ok) {
       const t = await r.text();
@@ -441,6 +527,19 @@ async function runGatewayChat({ text, useRag, history }) {
 
   const chatUrl = `${apiBase.replace(/\\/+$/,'')}/chat/completions`;
   const messages = [];
+  // If not using RAG, still provide current file/selection as a system hint (Cursor-like).
+  if (!useRag && editorCtx?.filePath && editorCtx?.content) {
+    const selNote = editorCtx.selection
+      ? `#L${editorCtx.selection.startLine}-${editorCtx.selection.endLine}`
+      : "";
+    messages.push({
+      role: "system",
+      content:
+        `Current file context (${editorCtx.filePath}${selNote}):\n\n` +
+        editorCtx.content +
+        `\n\n[End of current file context]`,
+    });
+  }
   if (systemContext) {
     messages.push({ role: "system", content: `You are an on-prem coding assistant. Use the following RAG context:\\n\\n${systemContext}` });
   }
