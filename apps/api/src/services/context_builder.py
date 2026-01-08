@@ -118,6 +118,8 @@ class ContextBuilderService:
         self,
         query: str,
         workspace_id: str,
+        tenant_id: Optional[str] = None,
+        project_id: Optional[str] = None,
         workspace_path: Optional[str] = None,
         max_results: int = DEFAULT_SEARCH_LIMIT,
         include_file_tree: bool = False,
@@ -162,6 +164,8 @@ class ContextBuilderService:
         search_results = await self._vector_store.search(
             query_embedding=query_embedding,
             workspace_id=workspace_id,
+            tenant_id=tenant_id,
+            project_id=project_id,
             limit=max_results,
             score_threshold=MIN_SIMILARITY_SCORE,
             file_filter=file_filter,

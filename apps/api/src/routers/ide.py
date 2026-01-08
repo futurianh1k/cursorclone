@@ -219,7 +219,7 @@ async def create_ide_container(
     container_id = f"ide-{request.workspace_id}"
 
     # 기존 컨테이너 스캔(다른 경로에서 생성된 IDE 컨테이너도 발견 가능)
-    _scan_existing_docker_containers()
+    scan_existing_containers()
     
     # 기존 컨테이너 확인
     existing = next(

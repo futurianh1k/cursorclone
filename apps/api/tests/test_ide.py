@@ -15,6 +15,70 @@ from src.main import app
 
 client = TestClient(app)
 
+# NOTE:
+# 이 테스트는 DB/인증 인프라 없이도 동작하도록 FastAPI dependency_overrides로
+# get_current_user / get_db 를 스텁 처리한다.
+try:
+    from src.services.rbac_service import get_current_user as dep_get_current_user
+    from src.db.connection import get_db as dep_get_db
+    from src.db.models import UserModel, WorkspaceModel
+except Exception:  # pragma: no cover
+    dep_get_current_user = None  # type: ignore
+    dep_get_db = None  # type: ignore
+    UserModel = None  # type: ignore
+    WorkspaceModel = None  # type: ignore
+
+
+def _install_overrides():
+    if not dep_get_current_user or not dep_get_db or not UserModel or not WorkspaceModel:
+        return
+
+    async def _fake_get_current_user():
+        return UserModel(
+            user_id="test-user",
+            org_id="org_default",
+            email="test@example.com",
+            name="Test User",
+            role="developer",
+        )
+
+    class _FakeResult:
+        def __init__(self, ws):
+            self._ws = ws
+
+        def scalar_one_or_none(self):
+            return self._ws
+
+    class _FakeDB:
+        async def execute(self, *args, **kwargs):
+            # ide.get_workspace_ide_url에서 WorkspaceModel 조회에 사용됨
+            return _FakeResult(
+                WorkspaceModel(
+                    workspace_id="test-workspace",
+                    project_id="prj_test",
+                    name="Test Workspace",
+                    owner_id="test-user",
+                    org_id="org_default",
+                    root_path="/workspaces/test-workspace",
+                    status="running",
+                )
+            )
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def _fake_get_db():
+        yield _FakeDB()
+
+    app.dependency_overrides[dep_get_current_user] = _fake_get_current_user
+    app.dependency_overrides[dep_get_db] = _fake_get_db
+
+
+_install_overrides()
+
 
 class TestIDEContainerAPI:
     """IDE 컨테이너 API 테스트 클래스"""
