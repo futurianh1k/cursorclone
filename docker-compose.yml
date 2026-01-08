@@ -69,6 +69,8 @@ services:
       IDE_BASE_URL: ${IDE_BASE_URL:-http://10.10.10.151}
       # Optional: offline VSIX extensions directory on docker host (mounted into IDE container as /opt/extra-extensions)
       HOST_IDE_EXTENSIONS_PATH: ${HOST_IDE_EXTENSIONS_PATH:-/home/ubuntu/projects/cursor-onprem-poc/ide-extensions}
+      # Optional: offline opencode.ai CLI directory on docker host (mounted into IDE container as /opt/opencode-cli)
+      HOST_OPENCODE_CLI_PATH: ${HOST_OPENCODE_CLI_PATH:-/home/ubuntu/projects/cursor-onprem-poc/opencode-cli}
       # Tabby 자동완성 서버
       TABBY_ENDPOINT: ${TABBY_ENDPOINT:-http://cursor-poc-tabby:8080}
       VLLM_ENDPOINT: ${VLLM_ENDPOINT:-http://cursor-poc-vllm:8000/v1}

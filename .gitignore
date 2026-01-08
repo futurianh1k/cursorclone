@@ -91,6 +91,10 @@ reports/
 # offline IDE extensions (VSIX binaries should not be committed)
 ide-extensions/*.vsix
 
+# opencode CLI binaries should not be committed
+opencode-cli/opencode
+opencode-cli/*.exe
+
 # Playwright (E2E)
 apps/web/playwright-report/
 apps/web/test-results/
