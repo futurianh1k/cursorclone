@@ -71,6 +71,8 @@ services:
       HOST_IDE_EXTENSIONS_PATH: ${HOST_IDE_EXTENSIONS_PATH:-/home/ubuntu/projects/cursor-onprem-poc/ide-extensions}
       # Optional: offline opencode.ai CLI directory on docker host (mounted into IDE container as /opt/opencode-cli)
       HOST_OPENCODE_CLI_PATH: ${HOST_OPENCODE_CLI_PATH:-/home/ubuntu/projects/cursor-onprem-poc/opencode-cli}
+      # Optional: offline Android SDK directory on docker host (mounted into IDE container as /opt/android-sdk)
+      HOST_ANDROID_SDK_PATH: ${HOST_ANDROID_SDK_PATH:-/home/ubuntu/projects/cursor-onprem-poc/android-sdk}
       # Tabby 자동완성 서버
       TABBY_ENDPOINT: ${TABBY_ENDPOINT:-http://cursor-poc-tabby:8080}
       VLLM_ENDPOINT: ${VLLM_ENDPOINT:-http://cursor-poc-vllm:8000/v1}
