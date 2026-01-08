@@ -459,6 +459,7 @@ export default function DashboardOverview() {
         </div>
         <button
           onClick={() => openCreateModalForProject(undefined)}
+          data-testid="dashboard-new-workspace"
           style={{
             padding: "12px 24px",
             fontSize: "14px",
@@ -650,6 +651,7 @@ export default function DashboardOverview() {
                 return (
                   <div
                     key={ws.workspaceId}
+                    data-testid={`ws-row-${ws.workspaceId}`}
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -677,7 +679,9 @@ export default function DashboardOverview() {
 
                     <div style={{ flex: 1 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
-                        <span style={{ fontSize: "15px", fontWeight: 600 }}>{ws.name}</span>
+                        <span style={{ fontSize: "15px", fontWeight: 600 }} data-testid={`ws-name-${ws.workspaceId}`}>
+                          {ws.name}
+                        </span>
                         <span
                           style={{
                             padding: "2px 8px",
@@ -687,6 +691,7 @@ export default function DashboardOverview() {
                             color: statusInfo.text,
                             borderRadius: "12px",
                           }}
+                          data-testid={`ws-status-${ws.workspaceId}`}
                         >
                           {statusInfo.label}
                         </span>
@@ -708,6 +713,7 @@ export default function DashboardOverview() {
                           <button
                             onClick={(e) => handleDeleteWorkspace(ws.workspaceId, e)}
                             disabled={isLoading}
+                            data-testid={`ws-delete-confirm-${ws.workspaceId}`}
                             style={{
                               padding: "8px 16px",
                               fontSize: "13px",
@@ -725,6 +731,7 @@ export default function DashboardOverview() {
                           <button
                             onClick={handleCancelDelete}
                             disabled={isLoading}
+                            data-testid={`ws-delete-cancel-${ws.workspaceId}`}
                             style={{
                               padding: "8px 16px",
                               fontSize: "13px",
@@ -746,6 +753,7 @@ export default function DashboardOverview() {
                               <button
                                 onClick={(e) => handleStartIDE(ws.workspaceId, e)}
                                 disabled={isLoading}
+                                data-testid={`ws-open-${ws.workspaceId}`}
                                 style={{
                                   padding: "8px 16px",
                                   fontSize: "13px",
@@ -764,6 +772,7 @@ export default function DashboardOverview() {
                                 onClick={(e) => handleStopIDE(ws.workspaceId, e)}
                                 disabled={isLoading}
                                 title="IDE 중지 (상태 보존)"
+                                data-testid={`ws-stop-${ws.workspaceId}`}
                                 style={{
                                   padding: "8px 16px",
                                   fontSize: "13px",
@@ -782,6 +791,7 @@ export default function DashboardOverview() {
                             <button
                               onClick={(e) => handleStartIDE(ws.workspaceId, e)}
                               disabled={isLoading || status === "starting" || status === "pending"}
+                              data-testid={`ws-start-${ws.workspaceId}`}
                               style={{
                                 padding: "8px 16px",
                                 fontSize: "13px",
@@ -801,6 +811,7 @@ export default function DashboardOverview() {
                             onClick={(e) => handleDeleteWorkspace(ws.workspaceId, e)}
                             disabled={isLoading}
                             title="워크스페이스 삭제"
+                            data-testid={`ws-delete-${ws.workspaceId}`}
                             style={{
                               padding: "8px 12px",
                               fontSize: "13px",
@@ -1131,6 +1142,7 @@ export default function DashboardOverview() {
           onClick={() => setShowCreateModal(false)}
         >
           <div
+            data-testid="create-ws-modal"
             style={{
               backgroundColor: "white",
               borderRadius: "12px",
@@ -1191,6 +1203,7 @@ export default function DashboardOverview() {
               <select
                 value={selectedProjectId}
                 onChange={(e) => setSelectedProjectId(e.target.value)}
+                data-testid="create-ws-project-select"
                 style={{
                   width: "100%",
                   padding: "10px 12px",
@@ -1226,6 +1239,7 @@ export default function DashboardOverview() {
                     value={newProjectName}
                     onChange={(e) => setNewProjectName(e.target.value)}
                     placeholder="비우면 워크스페이스 이름을 사용"
+                    data-testid="create-ws-new-project-name"
                     style={{
                       width: "100%",
                       padding: "10px 12px",
@@ -1248,6 +1262,7 @@ export default function DashboardOverview() {
                 value={newWorkspaceName}
                 onChange={(e) => setNewWorkspaceName(e.target.value)}
                 placeholder={createMode === "github" ? "저장소 이름 사용" : "my-project"}
+                data-testid="create-ws-name"
                 style={{
                   width: "100%",
                   padding: "10px 12px",
@@ -1270,6 +1285,7 @@ export default function DashboardOverview() {
                     value={githubUrl}
                     onChange={(e) => setGithubUrl(e.target.value)}
                     placeholder="https://github.com/owner/repo"
+                  data-testid="create-ws-github-url"
                     style={{
                       width: "100%",
                       padding: "10px 12px",
@@ -1289,6 +1305,7 @@ export default function DashboardOverview() {
                     value={githubBranch}
                     onChange={(e) => setGithubBranch(e.target.value)}
                     placeholder="main"
+                  data-testid="create-ws-github-branch"
                     style={{
                       width: "100%",
                       padding: "10px 12px",
@@ -1332,6 +1349,7 @@ export default function DashboardOverview() {
                   setGithubBranch("");
                 }}
                 disabled={createLoading}
+                data-testid="create-ws-cancel"
                 style={{
                   padding: "10px 20px",
                   fontSize: "14px",
@@ -1347,6 +1365,7 @@ export default function DashboardOverview() {
               <button
                 onClick={handleCreateWorkspace}
                 disabled={createLoading}
+                data-testid="create-ws-submit"
                 style={{
                   padding: "10px 20px",
                   fontSize: "14px",

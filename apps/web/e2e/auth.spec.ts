@@ -1,3 +1,38 @@
+import { test, expect } from "@playwright/test";
+import { loadCreds } from "./helpers";
+
+test("unauthenticated access to /dashboard redirects to /login", async ({ page }) => {
+  await page.addInitScript(() => {
+    try {
+      localStorage.removeItem("access_token");
+    } catch {}
+  });
+  await page.goto("/dashboard");
+  await page.waitForURL(/\/login/, { timeout: 15_000 });
+  await expect(page.getByText("Cursor On-Prem에 로그인")).toBeVisible();
+});
+
+test("logout clears session and returns to /login", async ({ page }) => {
+  // Login via UI (fresh)
+  const { email, password } = loadCreds();
+  await page.addInitScript(() => {
+    try {
+      localStorage.removeItem("access_token");
+    } catch {}
+  });
+  await page.goto("/login");
+  await page.getByTestId("auth-email").fill(email);
+  await page.getByTestId("auth-password").fill(password);
+  await page.getByTestId("auth-submit").click();
+
+  await page.waitForURL(/\/dashboard/, { timeout: 30_000 });
+  await expect(page.getByRole("heading", { name: "Workspaces" })).toBeVisible();
+
+  await page.getByTestId("dashboard-logout").click();
+  await page.waitForURL(/\/login/, { timeout: 15_000 });
+  await expect(page.getByText("Cursor On-Prem에 로그인")).toBeVisible();
+});
+
 import { test, expect } from '@playwright/test';
 
 /**

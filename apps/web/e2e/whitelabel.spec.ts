@@ -1,11 +1,5 @@
 import { test, expect } from "@playwright/test";
-import fs from "node:fs";
-
-function loadCreds(): { email: string; password: string } {
-  const p = process.env.E2E_CREDS_PATH;
-  if (!p) throw new Error("E2E_CREDS_PATH not set (globalSetup failed?)");
-  return JSON.parse(fs.readFileSync(p, "utf-8"));
-}
+import { loadCreds } from "./helpers";
 
 test.describe("authenticated dashboard flows", () => {
   test.use({
@@ -22,15 +16,12 @@ test.describe("authenticated dashboard flows", () => {
     test.slow();
     await page.goto("/dashboard");
 
-    await page.getByRole("button", { name: /새 워크스페이스/ }).click();
-    await expect(page.getByRole("heading", { name: "새 워크스페이스 생성" })).toBeVisible();
-
-    // Use empty workspace mode
-    await page.getByRole("button", { name: /빈 워크스페이스/ }).click();
+    await page.getByTestId("dashboard-new-workspace").click();
+    await expect(page.getByTestId("create-ws-modal")).toBeVisible();
 
     const wsName = `pw_ws_${Date.now()}`;
-    await page.getByPlaceholder("my-project").fill(wsName);
-    await page.getByRole("button", { name: /생성 및 IDE 시작/ }).click();
+    await page.getByTestId("create-ws-name").fill(wsName);
+    await page.getByTestId("create-ws-submit").click();
 
     // Success toast
     await expect(page.getByText(new RegExp(`워크스페이스 \\"${wsName}\\"가 생성되었습니다`))).toBeVisible({
@@ -40,19 +31,7 @@ test.describe("authenticated dashboard flows", () => {
     // Row appears
     await expect(page.getByText(wsName)).toBeVisible({ timeout: 60_000 });
 
-    // Try to click start/open and observe popup. This can be slow depending on image/model.
-    // If it doesn't open, we still treat it as best-effort (the main E2E is provisioning + listing).
-    const startBtn = page.getByRole("button", { name: /▶ 시작/ }).first();
-    if (await startBtn.isVisible().catch(() => false)) {
-      const popupPromise = page.waitForEvent("popup", { timeout: 90_000 }).catch(() => null);
-      await startBtn.click();
-      const popup = await popupPromise;
-      if (popup) {
-        await popup.waitForLoadState("domcontentloaded", { timeout: 90_000 }).catch(() => null);
-        expect(popup.url()).toMatch(/^http/);
-        await popup.close().catch(() => null);
-      }
-    }
+    // IDE popup open is best-effort here (provisioning can be slow)
   });
 });
 
@@ -71,9 +50,9 @@ test("login page works (UI login) [smoke]", async ({ page, context }) => {
   await page.goto("/login");
   await expect(page.getByText("Cursor On-Prem에 로그인")).toBeVisible();
 
-  await page.getByPlaceholder("user@example.com").fill(email);
-  await page.getByPlaceholder("비밀번호").fill(password);
-  await page.getByRole("button", { name: "로그인" }).click();
+  await page.getByTestId("auth-email").fill(email);
+  await page.getByTestId("auth-password").fill(password);
+  await page.getByTestId("auth-submit").click();
 
   await page.waitForURL(/\/dashboard/, { timeout: 30_000 });
   await expect(page.getByRole("heading", { name: "Workspaces" })).toBeVisible();

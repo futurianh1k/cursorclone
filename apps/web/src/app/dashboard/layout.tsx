@@ -191,6 +191,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           </div>
           <button
             onClick={handleLogout}
+            data-testid="dashboard-logout"
             style={{
               width: "100%",
               padding: "8px",
