@@ -1,3 +1,44 @@
+import { defineConfig, devices } from "@playwright/test";
+
+const webUrl = process.env.E2E_WEB_URL || process.env.WEB_URL || "http://localhost:3000";
+
+// On-prem / restricted network:
+// - Do NOT auto-download Playwright browsers.
+// - Use system chromium or set PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH.
+const chromiumExecutable =
+  process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ||
+  process.env.CHROMIUM_PATH ||
+  process.env.CHROME_PATH ||
+  "/usr/bin/chromium";
+
+export default defineConfig({
+  testDir: "./e2e",
+  timeout: 120_000,
+  expect: { timeout: 20_000 },
+  fullyParallel: false,
+  retries: process.env.CI ? 1 : 0,
+  reporter: [["list"], ["html", { open: "never" }]],
+  use: {
+    baseURL: webUrl,
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    video: "retain-on-failure",
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        launchOptions: {
+          executablePath: chromiumExecutable,
+        },
+      },
+    },
+  ],
+  globalSetup: require.resolve("./e2e/global-setup"),
+  outputDir: "test-results",
+});
+
 import { defineConfig, devices } from '@playwright/test';
 
 /**

@@ -88,6 +88,11 @@ reports/
 *.backup
 *.bak
 
+# Playwright (E2E)
+apps/web/playwright-report/
+apps/web/test-results/
+apps/web/.e2e/
+
 # pnpm
 .pnpm-store/
 
