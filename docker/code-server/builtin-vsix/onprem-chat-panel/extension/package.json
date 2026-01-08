@@ -44,6 +44,23 @@
           "type": "string",
           "default": "",
           "description": "Chat model name for /v1/chat/completions. If empty, uses Continue config models[0].model."
+        },
+        "cursorOnprem.chat.attachCurrentFile": {
+          "type": "boolean",
+          "default": true,
+          "description": "If enabled, automatically attach current file content (or selection) to RAG context as current_file/current_file_content."
+        },
+        "cursorOnprem.chat.attachSelectionOnly": {
+          "type": "boolean",
+          "default": true,
+          "description": "If enabled, use only the current selection. If selection is empty, falls back to whole file (up to max chars)."
+        },
+        "cursorOnprem.chat.maxCurrentFileChars": {
+          "type": "number",
+          "default": 20000,
+          "minimum": 1024,
+          "maximum": 200000,
+          "description": "Max characters to send as current_file_content (truncated)."
         }
       }
     },

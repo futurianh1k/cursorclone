@@ -43,4 +43,16 @@
 - 런처에서:
   - `OpenCode Chat (Webview)` 버튼 클릭
   - `RAG context 포함` 체크로 context builder 결과를 system message로 주입
+  - `현재 파일 첨부` + `선택영역만(없으면 파일)` 체크로 현재 편집 중인 컨텍스트를 자동 첨부
+
+## Cursor 느낌 강화: current_file/current_file_content 첨부
+
+- OpenCode Chat(Webview)는 (옵션에 따라) 현재 활성 에디터를 읽어 다음을 수행합니다:
+  - `/v1/rag/context` 요청에 `current_file`, `current_file_content`를 포함
+  - RAG를 끈 경우에도 system message에 현재 파일/선택영역을 힌트로 첨부(짧게, 트렁케이션)
+
+### 보호 장치(대용량/민감정보)
+
+- 최대 길이 제한: `cursorOnprem.chat.maxCurrentFileChars` (기본 20,000 chars)
+- 토큰/대화/파일 내용을 디스크에 저장하지 않음(세션 메모리만)
 
