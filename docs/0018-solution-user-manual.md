@@ -176,6 +176,119 @@ IDE 컨테이너 생성 시 아래가 자동으로 구성되어야 합니다(운
 
 ---
 
+## 9) 스크린샷 기반(실제 UI 캡처) 가이드
+
+이 섹션은 운영/사용자 문서에 “실제 화면 기준” 안내를 추가하기 위한 부록입니다.
+
+> 저장 규칙(중요)
+> - Git에는 **PNG 같은 바이너리 스크린샷을 커밋하지 않는 것을 권장**합니다(리포지토리 비대화 + 민감정보 포함 위험).
+> - 대신 아래처럼 **캡처 절차 + 체크포인트**를 문서로 남기고,
+>   실제 스크린샷은 운영 환경의 별도 저장소(문서 시스템/위키/첨부)로 관리하세요.
+
+### 9-1) 캡처 준비(권장)
+
+- 브라우저: Chrome/Chromium
+- 캡처 범위: 로그인 / 대시보드 / 워크스페이스 생성 모달 / IDE(code-server) / Continue 패널 / 자동완성 예시
+- 민감정보 마스킹:
+  - 이메일/사용자명은 **테스트 계정**으로 진행
+  - 토큰/JWT/내부 토큰이 화면에 노출되는 경우 즉시 **블러 처리**
+
+### 9-2) 화면별 캡처 체크리스트(무엇을 찍어야 하나?)
+
+- **로그인 화면**
+  - 제목 “로그인”
+  - 이메일/비밀번호 입력란
+  - “로그인”, “회원가입” 버튼
+
+- **대시보드(/dashboard)**
+  - 좌측 사이드바(Overview 등)
+  - 상단 “Workspaces” + “+ 새 워크스페이스” 버튼
+  - 워크스페이스 목록(없어도 OK)
+
+- **새 워크스페이스 생성 모달**
+  - “📁 빈 워크스페이스 / 🔗 GitHub 클론” 탭
+  - 프로젝트 선택(새 프로젝트 자동 생성)
+  - “생성 및 IDE 시작” 버튼
+
+- **IDE(code-server)**
+  - 파일 트리(Explorer) / 에디터 영역
+  - 우측 사이드바/패널의 **Continue Chat UI**가 보이는지
+  - 상태바의 Tabby 표시(연결 성공/실패 메시지)
+
+- **자동완성(Tabby) 예시**
+  - Python/TS 등 파일에서 몇 글자 입력 후 인라인 제안이 뜨는 장면
+  - “제안이 안 뜨는 경우”는 **Troubleshooting 스크린샷**으로도 가치가 큼(예: “Connect to Server Failed”)
+
+### 9-3) (참고) 문서에 포함 가능한 “텍스트 스냅샷”(접근성 스냅샷)
+
+아래는 Playwright가 뽑아낸 “접근성 트리” 기반 스냅샷 예시입니다.
+바이너리 이미지를 커밋하기 어려운 환경에서 “실제 UI가 어떤 요소로 구성되는지”를 남기는 용도로 사용합니다.
+
+#### 로그인 화면(예시)
+
+<details>
+<summary>접근성 스냅샷 (요약)</summary>
+
+```text
+Page: /login
+- heading: "로그인"
+- paragraph: "Cursor On-Prem에 로그인하세요"
+- textbox: 이메일
+- textbox: 비밀번호
+- button: 로그인
+- button: 회원가입
+```
+
+</details>
+
+#### 대시보드 화면(예시)
+
+<details>
+<summary>접근성 스냅샷 (요약)</summary>
+
+```text
+Page: /dashboard
+- sidebar: "Cursor On-Prem" + nav(Overview/Settings/...)
+- button: "+ 새 워크스페이스"
+- heading: "Workspaces"
+- paragraph: "환영합니다, <사용자>님! VSCode 서버 워크스페이스를 관리하세요."
+```
+
+</details>
+
+#### 새 워크스페이스 생성 모달(예시)
+
+<details>
+<summary>접근성 스냅샷 (요약)</summary>
+
+```text
+Modal: "새 워크스페이스 생성"
+- button: "📁 빈 워크스페이스"
+- button: "🔗 GitHub 클론"
+- combobox: 프로젝트(새 프로젝트 자동 생성)
+- textbox: 워크스페이스 이름
+- button: 취소
+- button: 생성 및 IDE 시작
+```
+
+</details>
+
+#### IDE(code-server) + Continue 패널 + Tabby 상태(예시)
+
+<details>
+<summary>접근성 스냅샷 (요약)</summary>
+
+```text
+Page: code-server
+- main: walkthrough/editor 영역
+- right sidebar: Continue Chat UI(예: "Build with Agent", 입력창)
+- status bar: Tabby 상태(예: "Connect to Server Failed" / 정상 시 연결 성공 상태)
+```
+
+</details>
+
+---
+
 ## 참고/출처
 
 - Playwright Test 공식 문서: `https://playwright.dev/docs/test-intro`
