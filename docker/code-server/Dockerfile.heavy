@@ -68,12 +68,12 @@ RUN mkdir -p /home/coder/.local/share/code-server/User \
     && mkdir -p /home/coder/.config/tabby \
     && mkdir -p /home/coder/.continue
 
-COPY --chown=coder:coder settings.json /home/coder/.local/share/code-server/User/settings.json
-COPY --chown=coder:coder tabby-settings.json /home/coder/.config/tabby/settings.json
-COPY --chown=coder:coder continue/config.json /home/coder/.continue/config.json
+COPY --chown=coder:coder docker/code-server/settings.json /home/coder/.local/share/code-server/User/settings.json
+COPY --chown=coder:coder docker/code-server/tabby-settings.json /home/coder/.config/tabby/settings.json
+COPY --chown=coder:coder docker/code-server/continue/config.json /home/coder/.continue/config.json
 
 # entrypoint wrapper (VSIX auto install + optional CLI/Android SDK PATH injection)
-COPY --chown=coder:coder entrypoint.sh /usr/local/bin/cursor-entrypoint
+COPY --chown=coder:coder docker/code-server/entrypoint.sh /usr/local/bin/cursor-entrypoint
 RUN chmod +x /usr/local/bin/cursor-entrypoint
 ENTRYPOINT ["/usr/local/bin/cursor-entrypoint"]
 
