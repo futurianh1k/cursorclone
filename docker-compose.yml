@@ -250,6 +250,20 @@ services:
     restart: "no"
 
   # ============================================================
+  # 커스텀 code-server "heavy" 이미지 빌더 (오프라인 toolchain 포함)
+  # - offline/debs/*.deb 번들을 이용해 dpkg -i로 설치
+  # - IDE_CONTAINER_IMAGE를 cursor-poc-code-server-heavy:latest로 바꾸면 사용 가능
+  # ============================================================
+  code-server-builder-heavy:
+    build:
+      context: .
+      dockerfile: ./docker/code-server/Dockerfile.heavy
+    image: cursor-poc-code-server-heavy:latest
+    container_name: cursor-poc-code-server-builder-heavy
+    command: ["echo", "Heavy image built successfully"]
+    restart: "no"
+
+  # ============================================================
   # Tabby (AI 코드 자동완성 서버)
   # Copilot 스타일 인라인 코드 완성
   # ============================================================
