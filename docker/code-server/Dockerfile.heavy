@@ -1,0 +1,77 @@
+# ============================================================
+# "Heavy" code-server 이미지 (Offline toolchain 포함 버전)
+#
+# 목표:
+# - IDE 컨테이너 런타임에서 apt-get이 막혀도 개발 도구가 동작
+# - 빌드도 오프라인으로 가능(= docker build 단계에서 외부 apt repo 의존 최소화)
+#
+# 방식:
+# - host가 준비한 offline/debs/*.deb 를 build context로 COPY
+# - 컨테이너 내부에서 dpkg -i 로 설치 (의존성 포함 deb 번들이 필요)
+# - VSIX는 런타임에 /opt/extra-extensions 마운트 + entrypoint 자동 설치(이미 구현)
+# ============================================================
+
+FROM codercom/code-server:latest
+
+LABEL maintainer="cursor-onprem-poc"
+LABEL description="code-server heavy image with offline toolchain via .deb bundles"
+
+USER root
+
+# ------------------------------------------------------------
+# (오프라인) deb 번들 설치
+# - offline/debs 에 의존성까지 포함한 .deb들을 넣어두면, dpkg -i로 설치한다.
+# - apt-get -f install(온라인 repo 필요)을 사용하지 않기 때문에,
+#   의존성 누락 시 빌드가 실패할 수 있다(의도).
+# ------------------------------------------------------------
+COPY offline/debs/ /tmp/offline-debs/
+
+RUN set -eux; \
+  if [ -d /tmp/offline-debs ] && ls -1 /tmp/offline-debs/*.deb >/dev/null 2>&1; then \
+    echo "[heavy] Installing offline deb bundle(s) from /tmp/offline-debs"; \
+    dpkg -i /tmp/offline-debs/*.deb || ( \
+      echo >&2 "[heavy] dpkg install failed. This build is offline-first; please ensure offline/debs includes ALL dependencies."; \
+      echo >&2 "[heavy] Tip: include build-essential, gdb, cmake, git, openssh-client, curl, jq, ripgrep, unzip, JDK, dotnet SDK, go toolchain, etc (+ their dependencies)."; \
+      exit 1 \
+    ); \
+  else \
+    echo "[heavy] No .deb files found under offline/debs/. Skipping offline toolchain install."; \
+  fi; \
+  rm -rf /tmp/offline-debs
+
+# ------------------------------------------------------------
+# 기존 기본 확장/설정(Continue/Tabby 등)은 light 이미지와 동일하게 포함
+# (가능하면 heavy는 toolchain만 추가하고 UI/설정은 동일하게 유지)
+# ------------------------------------------------------------
+
+# system packages already present in base image; keep minimal.
+
+USER coder
+WORKDIR /home/coder
+
+# VS Code extensions (online install is best-effort; may be disabled in strict offline environments)
+RUN code-server --install-extension TabbyML.vscode-tabby || true
+RUN code-server --install-extension Continue.continue || true
+RUN code-server --install-extension ms-python.python || true
+RUN code-server --install-extension dbaeumer.vscode-eslint || true
+RUN code-server --install-extension esbenp.prettier-vscode || true
+RUN code-server --install-extension PKief.material-icon-theme || true
+
+RUN mkdir -p /home/coder/.local/share/code-server/User \
+    && mkdir -p /home/coder/.config/tabby \
+    && mkdir -p /home/coder/.continue
+
+COPY --chown=coder:coder settings.json /home/coder/.local/share/code-server/User/settings.json
+COPY --chown=coder:coder tabby-settings.json /home/coder/.config/tabby/settings.json
+COPY --chown=coder:coder continue/config.json /home/coder/.continue/config.json
+
+# entrypoint wrapper (VSIX auto install + optional CLI/Android SDK PATH injection)
+COPY --chown=coder:coder entrypoint.sh /usr/local/bin/cursor-entrypoint
+RUN chmod +x /usr/local/bin/cursor-entrypoint
+ENTRYPOINT ["/usr/local/bin/cursor-entrypoint"]
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+    CMD curl -f http://localhost:8080/healthz || exit 1
+
