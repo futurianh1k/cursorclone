@@ -95,6 +95,13 @@ ide-extensions/*.vsix
 opencode-cli/opencode
 opencode-cli/*.exe
 
+# Android SDK (offline) - too large for git
+android-sdk/**
+!android-sdk/README.md
+
+# offline bundles (binaries should not be committed)
+offline/debs/*.deb
+
 # Playwright (E2E)
 apps/web/playwright-report/
 apps/web/test-results/

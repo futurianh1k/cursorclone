@@ -46,6 +46,9 @@ HOST_IDE_EXTENSIONS_PATH = os.getenv("HOST_IDE_EXTENSIONS_PATH")
 # Expected layout (recommended):
 # - <HOST_OPENCODE_CLI_PATH>/opencode  (executable)
 HOST_OPENCODE_CLI_PATH = os.getenv("HOST_OPENCODE_CLI_PATH")
+# Optional: host path containing Android SDK (offline) to be mounted into IDE container.
+# Recommended: place extracted SDK under repo ./android-sdk and mount it to /opt/android-sdk (read-only).
+HOST_ANDROID_SDK_PATH = os.getenv("HOST_ANDROID_SDK_PATH")
 
 
 # In-memory 저장소 (PoC용)
@@ -302,6 +305,11 @@ class IDEService:
                             if HOST_OPENCODE_CLI_PATH
                             else {}
                         ),
+                        **(
+                            {HOST_ANDROID_SDK_PATH: {"bind": "/opt/android-sdk", "mode": "ro"}}
+                            if HOST_ANDROID_SDK_PATH
+                            else {}
+                        ),
                     },
                     environment={
                         "WORKSPACE_ID": workspace_id,
@@ -351,11 +359,29 @@ class IDEService:
         user_id: str,
     ) -> Optional[dict]:
         """워크스페이스의 IDE 컨테이너 조회"""
-        for container in _ide_containers.values():
-            if (container["workspace_id"] == workspace_id 
-                and container["user_id"] == user_id
-                and container["status"] not in ["stopped", "error"]):
-                return container
+        # NOTE: in-memory 상태가 stale 될 수 있으므로(컨테이너 수동 삭제/재시작 등),
+        # Docker가 사용 가능한 경우 실제 컨테이너 존재 여부를 함께 확인한다.
+        for container_id, container in list(_ide_containers.items()):
+            if not (
+                container.get("workspace_id") == workspace_id
+                and container.get("user_id") == user_id
+                and container.get("status") not in ["stopped", "error"]
+            ):
+                continue
+
+            if self.client:
+                try:
+                    self.client.containers.get(container_id)
+                except NotFound:
+                    # stale entry cleanup: 컨테이너가 실제로 없으면 메모리 상태를 제거하여 재생성 유도
+                    port = container.get("port")
+                    if port:
+                        self._release_port(port)
+                    del _ide_containers[container_id]
+                    logger.warning(f"Stale IDE container entry removed (missing in Docker): {container_id}")
+                    continue
+
+            return container
         return None
     
     def get_all_containers(self) -> dict:

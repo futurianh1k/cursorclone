@@ -28,5 +28,23 @@ if [ -x "/opt/opencode-cli/opencode" ]; then
   echo "[entrypoint] opencode CLI detected at /opt/opencode-cli/opencode (PATH updated)"
 fi
 
+# Optional: Android SDK (offline) mounted at /opt/android-sdk
+if [ -d "/opt/android-sdk" ]; then
+  export ANDROID_HOME="/opt/android-sdk"
+  export ANDROID_SDK_ROOT="/opt/android-sdk"
+
+  # Common SDK subpaths (depending on how SDK is extracted/prepared)
+  if [ -d "/opt/android-sdk/platform-tools" ]; then
+    export PATH="/opt/android-sdk/platform-tools:${PATH}"
+  fi
+  if [ -d "/opt/android-sdk/cmdline-tools/latest/bin" ]; then
+    export PATH="/opt/android-sdk/cmdline-tools/latest/bin:${PATH}"
+  fi
+  if [ -d "/opt/android-sdk/cmdline-tools/bin" ]; then
+    export PATH="/opt/android-sdk/cmdline-tools/bin:${PATH}"
+  fi
+  echo "[entrypoint] Android SDK detected at /opt/android-sdk (ANDROID_HOME set)"
+fi
+
 exec dumb-init code-server "$@"
 
