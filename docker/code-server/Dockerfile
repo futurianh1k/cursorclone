@@ -71,5 +71,9 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
     CMD curl -f http://localhost:8080/healthz || exit 1
 
-# 시작 명령어
-ENTRYPOINT ["dumb-init", "code-server", "--bind-addr", "0.0.0.0:8080", "--auth", "none"]
+# 시작 엔트리포인트(오프라인 VSIX 자동 설치 지원)
+# - docker SDK에서 command로 ["--auth","none","--bind-addr","0.0.0.0:8080"] 형태의 args를 넘긴다.
+# - 따라서 ENTRYPOINT는 wrapper만 두고, 실제 code-server args는 command로 전달받는다.
+COPY --chown=coder:coder entrypoint.sh /usr/local/bin/cursor-entrypoint
+RUN chmod +x /usr/local/bin/cursor-entrypoint
+ENTRYPOINT ["/usr/local/bin/cursor-entrypoint"]
